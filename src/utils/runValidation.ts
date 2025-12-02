@@ -69,10 +69,13 @@ export const validateAverageSpeed = (
   return { isValid: true };
 };
 
-// Obtener límite de área (límite fijo para todos los niveles)
+// Obtener límite de área basado en nivel (m²)
 export const getMaxAreaForLevel = (level: number): number => {
-  // Límite fijo de 5 km² para todos los usuarios
-  return 5000000; // 5 km²
+  const base = 200000; // 0.2 km²
+  const increment = 50000; // +0.05 km² por nivel
+  const cap = 5000000; // 5 km²
+  const computed = base + (Math.max(level, 1) - 1) * increment;
+  return Math.min(computed, cap);
 };
 
 // Validar área de territorio según nivel

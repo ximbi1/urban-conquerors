@@ -199,6 +199,13 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           color: t.profiles?.color || '#8b5cf6',
           timestamp: new Date(t.created_at).getTime(),
           conquered: t.conquered,
+          protectedUntil: t.protected_until,
+          cooldownUntil: t.cooldown_until,
+          status: t.status,
+          requiredPace: t.required_pace,
+          lastAttackerId: t.last_attacker_id,
+          lastAttackAt: t.last_attack_at,
+          conquestPoints: t.conquest_points,
         }));
         setTerritories(formattedTerritories);
       }

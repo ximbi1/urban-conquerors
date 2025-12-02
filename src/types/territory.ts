@@ -15,6 +15,13 @@ export interface Territory {
   color: string;
   timestamp: number;
   conquered: boolean;
+  protectedUntil?: string | null;
+  cooldownUntil?: string | null;
+  status?: 'idle' | 'protected' | 'contested';
+  requiredPace?: number;
+  lastAttackerId?: string | null;
+  lastAttackAt?: string | null;
+  conquestPoints?: number;
 }
 
 export interface Run {

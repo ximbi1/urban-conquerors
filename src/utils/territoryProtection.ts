@@ -106,16 +106,11 @@ export const checkActiveShield = (
   return { hasShield: false };
 };
 
-// Calcular bonus de defensa por nivel
+// Calcular bonus de defensa (min/km) por nivel
 export const calculateDefenseBonus = (level: number): number => {
-  // Los usuarios de mayor nivel tienen un pequeño bonus de defensa
-  // Esto requiere un ritmo aún mejor para robarles
-  if (level >= 20) return 0.05; // 5% mejor ritmo necesario
-  if (level >= 17) return 0.04; // 4%
-  if (level >= 14) return 0.03; // 3%
-  if (level >= 11) return 0.02; // 2%
-  if (level >= 8) return 0.01; // 1%
-  return 0;
+  if (level >= 11) return 1; // 1 min/km extra de defensa
+  if (level >= 6) return 0.75;
+  return 0.5;
 };
 
 // Calcular ritmo necesario para robar considerando defensa
@@ -124,5 +119,6 @@ export const calculateRequiredPaceToSteal = (
   ownerLevel: number
 ): number => {
   const defenseBonus = calculateDefenseBonus(ownerLevel);
-  return territoryPace * (1 - defenseBonus);
+  const required = territoryPace - defenseBonus;
+  return Math.max(required, 2.5);
 };

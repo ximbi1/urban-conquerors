@@ -6,12 +6,10 @@ import { Alert, AlertDescription } from './ui/alert';
 import { parseGPX, parseTCX, detectFileType, gpsPointsToCoordinates, ParsedActivity } from '@/utils/gpxParser';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { calculatePolygonArea, calculatePerimeter, isPolygonClosed, calculateAveragePace, calculateDistance } from '@/utils/geoCalculations';
+import { calculatePolygonArea, isPolygonClosed, calculateAveragePace, calculatePathDistance } from '@/utils/geoCalculations';
 import { validateRun } from '@/utils/runValidation';
 import { Coordinate } from '@/types/territory';
-import { calculatePoints } from '@/utils/geoCalculations';
 import { calculateLevel } from '@/utils/levelSystem';
-import { calculateDefenseBonus, calculateRequiredPaceToSteal } from '@/utils/territoryProtection';
 
 // Verificar si una fecha está en la semana actual (lunes-domingo)
 const isInCurrentWeek = (date: Date): boolean => {
@@ -117,7 +115,7 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
       // Obtener perfil del usuario
       const { data: profile } = await supabase
         .from('profiles')
-        .select('total_points, color, total_territories, total_distance, season_points, historical_points')
+        .select('total_points')
         .eq('id', user.id)
         .single();
 
@@ -127,144 +125,46 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
 
       const userLevel = calculateLevel(profile.total_points).level;
 
-      // Calcular estadísticas primero
-      const avgPace = calculateAveragePace(parsedData.totalDistance, parsedData.duration);
-
-      // Detectar polígonos cerrados en la ruta
-      let totalPoints = 0;
-      let territoriesConquered = 0;
-      let territoriesStolen = 0;
-
-      // Por simplicidad, detectamos UN polígono cerrado al final de la ruta
       if (!isPolygonClosed(path, 100)) {
-        throw new Error('La ruta no forma un polígono cerrado. Asegúrate de que el inicio y el final de la ruta estén cerca (máx. 100m)');
+        throw new Error('La ruta no forma un polígono cerrado. Asegúrate de que el inicio y el final estén cerca (máx. 100m)');
       }
 
+      const distanceMeters = calculatePathDistance(path);
       const area = calculatePolygonArea(path);
-      const perimeter = calculatePerimeter(path);
+      const avgPace = calculateAveragePace(distanceMeters, parsedData.duration);
 
-      // Ahora validar con el área calculada
-      const validation = validateRun(
-        path,
-        parsedData.duration,
-        area,
-        userLevel
-      );
+      const validation = validateRun(path, parsedData.duration, area, userLevel);
 
       if (!validation.isValid) {
         throw new Error(`Carrera no válida: ${validation.errors.join(', ')}`);
       }
-      
-      // Verificar si roba territorio de otro usuario
-      const { data: existingTerritories } = await supabase
-        .from('territories')
-        .select('*, profiles!territories_user_id_fkey(username, color, total_points)')
-        .neq('user_id', user.id);
 
-      let isStolen = false;
-      let stolenFromUserId = null;
+      const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
+        body: {
+          path,
+          duration: parsedData.duration,
+          source: 'import',
+        },
+      });
 
-      if (existingTerritories) {
-        for (const territory of existingTerritories) {
-          const coords = territory.coordinates as any as Coordinate[];
-          // Verificar si hay suficiente superposición (simplificado)
-          const centerLat = coords.reduce((sum, c) => sum + c.lat, 0) / coords.length;
-          const centerLng = coords.reduce((sum, c) => sum + c.lng, 0) / coords.length;
-          
-          const isInside = path.some(p => {
-            const dist = calculateDistance(p, { lat: centerLat, lng: centerLng });
-            return dist < 50; // Si algún punto está muy cerca del centro
-          });
-
-          if (isInside) {
-            // Verificar si el ritmo es mejor
-            const ownerProfile = territory.profiles as any;
-            const ownerLevel = calculateLevel(ownerProfile.total_points).level;
-            const requiredPace = calculateRequiredPaceToSteal(territory.avg_pace, ownerLevel);
-            
-            if (avgPace <= requiredPace) {
-              isStolen = true;
-              stolenFromUserId = territory.user_id;
-              
-              // Eliminar territorio robado
-              await supabase
-                .from('territories')
-                .delete()
-                .eq('id', territory.id);
-              
-              // Actualizar perfil del usuario robado
-              const { data: stolenProfile } = await supabase
-                .from('profiles')
-                .select('total_territories, total_points')
-                .eq('id', territory.user_id)
-                .single();
-              
-              if (stolenProfile) {
-                await supabase
-                  .from('profiles')
-                  .update({
-                    total_territories: Math.max(0, stolenProfile.total_territories - 1),
-                    total_points: Math.max(0, stolenProfile.total_points - territory.points),
-                  })
-                  .eq('id', territory.user_id);
-              }
-              
-              break;
-            }
-          }
-        }
+      if (claimError || !claimResult?.success) {
+        throw new Error(claimError?.message || (claimResult as any)?.error || 'No se pudo guardar la carrera importada');
       }
 
-      if (isStolen) {
-        territoriesStolen++;
+      const resultData = claimResult.data;
+      const territoriesConquered = resultData?.territoriesConquered ?? 0;
+      const territoriesStolen = resultData?.territoriesStolen ?? 0;
+      const pointsGained = resultData?.pointsGained ?? 0;
+
+      if (resultData?.action === 'stolen') {
+        toast.success('🔥 ¡Territorio robado desde importación!', {
+          description: 'Has conquistado un territorio enemigo con tu archivo GPS',
+        });
+      } else if (resultData?.action === 'reinforced') {
+        toast.info('Territorio reforzado mediante importación');
       } else {
-        territoriesConquered++;
+        toast.success('🎉 ¡Territorio conquistado desde importación!');
       }
-
-      // Crear nuevo territorio
-      const points = calculatePoints(area, isStolen);
-      const { error: insertError } = await supabase.from('territories').insert([{
-        user_id: user.id,
-        coordinates: path as any,
-        area,
-        perimeter,
-        avg_pace: avgPace,
-        points,
-        conquered: true,
-      }]);
-
-      if (insertError) throw insertError;
-
-      totalPoints += points;
-
-      // Guardar carrera
-      const { error: runError } = await supabase.from('runs').insert([{
-        user_id: user.id,
-        path: path as any,
-        distance: parsedData.totalDistance,
-        duration: parsedData.duration,
-        avg_pace: avgPace,
-        territories_conquered: territoriesConquered,
-        territories_stolen: territoriesStolen,
-        territories_lost: 0,
-        points_gained: totalPoints,
-      }]);
-
-      if (runError) throw runError;
-
-      // Actualizar perfil del usuario
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          total_points: profile.total_points + totalPoints,
-          season_points: (profile.season_points || 0) + totalPoints,
-          historical_points: (profile.historical_points || 0) + totalPoints,
-          total_territories: (profile.total_territories || 0) + (territoriesConquered + territoriesStolen),
-          total_distance: (profile.total_distance || 0) + parsedData.totalDistance,
-        })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
 
       // Actualizar progreso de desafíos semanales
       try {
@@ -283,11 +183,11 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
             const challenge = participation.challenge as any;
 
             if (challenge.type === 'distance') {
-              newProgress += Math.round(parsedData.totalDistance);
+              newProgress += Math.round(distanceMeters);
             } else if (challenge.type === 'territories') {
               newProgress += (territoriesConquered + territoriesStolen);
             } else if (challenge.type === 'points') {
-              newProgress += totalPoints;
+              newProgress += pointsGained;
             }
 
             const isCompleted = newProgress >= challenge.target_value;

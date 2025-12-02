@@ -33,7 +33,7 @@ export const TerritoryInfoTooltip = ({ userLevel }: TerritoryInfoTooltipProps) =
               {defenseBonus > 0 && (
                 <p>
                   <span className="font-medium">Bonus defensa (Nivel {userLevel}):</span>{' '}
-                  +{(defenseBonus * 100).toFixed(0)}%
+                  -{defenseBonus.toFixed(2)} min/km necesarios
                 </p>
               )}
               <p className="text-muted-foreground mt-2">

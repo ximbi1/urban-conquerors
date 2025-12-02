@@ -1,13 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Coordinate, Territory } from '@/types/territory';
+import { Coordinate } from '@/types/territory';
 import {
   calculatePathDistance,
   isPolygonClosed,
   calculatePolygonArea,
-  calculatePerimeter,
   calculateAveragePace,
-  checkPerimeterCoverage,
-  calculatePoints,
 } from '@/utils/geoCalculations';
 import {
   filterGPSPointsByAccuracy,
@@ -15,11 +12,6 @@ import {
   validateRun,
   GPSPoint,
 } from '@/utils/runValidation';
-import {
-  checkTerritoryProtection,
-  formatProtectionTime,
-  calculateRequiredPaceToSteal,
-} from '@/utils/territoryProtection';
 import { calculateLevel } from '@/utils/levelSystem';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -176,6 +168,7 @@ export const useRun = () => {
     let stolen = 0;
     let lost = 0;
     let pointsGained = 0;
+    let runIdentifier: string | null = null;
 
     // Suavizar ruta antes de procesar
     const smoothedPath = smoothPath(runPath);
@@ -184,7 +177,6 @@ export const useRun = () => {
     // Verificar si se cerró un polígono
     if (smoothedPath.length >= 4 && isPolygonClosed(smoothedPath)) {
       const area = calculatePolygonArea(smoothedPath);
-      const perimeter = calculatePerimeter(smoothedPath);
       const avgPace = calculateAveragePace(smoothedDistance, duration);
 
       // Obtener nivel del usuario
@@ -210,110 +202,50 @@ export const useRun = () => {
       }
 
       try {
-        // Cargar territorios existentes con información del dueño
-        const { data: existingTerritories } = await supabase
-          .from('territories')
-          .select(`
-            *,
-            profile:profiles!territories_user_id_fkey(total_points)
-          `);
+        const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
+          body: {
+            path: smoothedPath,
+            duration,
+            source: useGPS ? 'live' : 'manual',
+          },
+        });
 
-        let isSteal = false;
-        let stolenTerritoryId: string | null = null;
-
-        if (existingTerritories) {
-          for (const territory of existingTerritories) {
-            const territoryCoords = (territory.coordinates as unknown) as Coordinate[];
-            if (checkPerimeterCoverage(smoothedPath, territoryCoords, 0.9)) {
-              // Verificar protección temporal
-              const protection = checkTerritoryProtection(territory.updated_at);
-              if (protection.isProtected && territory.user_id !== user.id) {
-                toast.warning('Territorio protegido', {
-                  description: `Este territorio está protegido por ${formatProtectionTime(protection.remainingTime!)}`,
-                });
-                continue;
-              }
-
-              // Calcular nivel del dueño y ritmo necesario
-              const ownerProfile = territory.profile as any;
-              const ownerLevel = ownerProfile ? calculateLevel(ownerProfile.total_points).level : 1;
-              const requiredPace = calculateRequiredPaceToSteal(territory.avg_pace, ownerLevel);
-
-              if (avgPace < requiredPace) {
-                isSteal = true;
-                stolenTerritoryId = territory.id;
-                stolen++;
-                if (territory.user_id === user.id) {
-                  lost++;
-                }
-                break;
-              } else {
-                toast.info('Ritmo insuficiente', {
-                  description: `Necesitas ${requiredPace.toFixed(2)} min/km o menos para robar este territorio`,
-                });
-              }
-            }
-          }
+        if (claimError) {
+          toast.error('No se pudo procesar el territorio', {
+            description: claimError.message || 'Inténtalo de nuevo más tarde',
+          });
+          setIsSaving(false);
+          setIsRunning(false);
+          setIsPaused(false);
+          return;
         }
 
-        if (isSteal && stolenTerritoryId) {
-          // Obtener información del territorio robado para notificar al dueño
-          const stolenTerritory = existingTerritories?.find(t => t.id === stolenTerritoryId);
-          
-          // Actualizar territorio robado
-          const { error } = await supabase
-            .from('territories')
-            .update({
-              user_id: user.id,
-              avg_pace: avgPace,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', stolenTerritoryId);
+        if (!claimResult?.success) {
+          toast.error('La carrera no se pudo guardar', {
+            description: (claimResult as any)?.error || 'Error desconocido',
+          });
+          setIsSaving(false);
+          setIsRunning(false);
+          setIsPaused(false);
+          return;
+        }
 
-          if (error) throw error;
+        const resultData = claimResult.data;
+        conquered = resultData?.territoriesConquered ?? 0;
+        stolen = resultData?.territoriesStolen ?? 0;
+        lost = resultData?.territoriesLost ?? 0;
+        pointsGained = resultData?.pointsGained ?? 0;
+        runIdentifier = resultData?.runId ?? null;
 
-          // Crear notificación si el territorio era de otro usuario
-          if (stolenTerritory && stolenTerritory.user_id !== user.id) {
-            const { data: currentUserProfile } = await supabase
-              .from('profiles')
-              .select('username')
-              .eq('id', user.id)
-              .single();
-
-            await supabase
-              .from('notifications')
-              .insert({
-                user_id: stolenTerritory.user_id,
-                type: 'territory_stolen',
-                title: '¡Te han robado un territorio!',
-                message: `${currentUserProfile?.username || 'Un corredor'} ha conquistado uno de tus territorios`,
-                related_id: stolenTerritoryId
-              });
-          }
-
-          pointsGained += 50;
+        if (resultData?.action === 'stolen') {
           toast.success('🔥 ¡Territorio robado!', {
             description: 'Has conquistado un territorio enemigo',
           });
+        } else if (resultData?.action === 'reinforced') {
+          toast.info('Territorio reforzado', {
+            description: 'Has renovado un territorio que ya te pertenecía',
+          });
         } else {
-          // Crear nuevo territorio
-          const newPoints = calculatePoints(area);
-          const { error } = await supabase
-            .from('territories')
-            .insert({
-              user_id: user.id,
-              coordinates: smoothedPath as any,
-              area,
-              perimeter,
-              avg_pace: avgPace,
-              points: newPoints,
-              conquered: true,
-            });
-
-          if (error) throw error;
-
-          conquered++;
-          pointsGained += newPoints;
           toast.success('🎉 ¡Territorio conquistado!', {
             description: `Área: ${Math.round(area)} m²`,
           });
@@ -324,51 +256,11 @@ export const useRun = () => {
         setIsSaving(false);
         return;
       }
-    }
-
-    // Guardar la carrera
-    try {
-      const { error: runError } = await supabase
-        .from('runs')
-        .insert({
-          user_id: user.id,
-          path: smoothedPath as any,
-          distance: smoothedDistance,
-          duration,
-          avg_pace: calculateAveragePace(smoothedDistance, duration),
-          territories_conquered: conquered,
-          territories_stolen: stolen,
-          territories_lost: lost,
-          points_gained: pointsGained,
-        });
-
-      if (runError) throw runError;
-
-      // Actualizar perfil
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (profile) {
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update({
-              total_points: profile.total_points + pointsGained,
-              season_points: profile.season_points + pointsGained,
-              historical_points: profile.historical_points + pointsGained,
-              total_territories: profile.total_territories + conquered,
-              total_distance: profile.total_distance + smoothedDistance,
-            })
-            .eq('id', user.id);
-
-        if (profileError) throw profileError;
-      }
-    } catch (error) {
-      console.error('Error guardando carrera:', error);
-      toast.error('Error al guardar la carrera', { id: 'saving-run' });
+    } else {
+      toast.error('La ruta debe formar un polígono cerrado para conquistar territorios');
       setIsSaving(false);
+      setIsRunning(false);
+      setIsPaused(false);
       return;
     }
 
@@ -459,12 +351,12 @@ export const useRun = () => {
     }, 1000);
 
     return {
-      conquered, 
-      stolen, 
-      lost, 
-      pointsGained, 
-      run: { 
-        id: `run-${Date.now()}`,
+      conquered,
+      stolen,
+      lost,
+      pointsGained,
+      run: {
+        id: runIdentifier ?? `run-${Date.now()}`,
         userId: user.id,
         path: smoothedPath,
         distance: smoothedDistance,
@@ -475,9 +367,9 @@ export const useRun = () => {
         territoriesLost: lost,
         pointsGained,
         timestamp: Date.now(),
-      }
+      },
     };
-  }, [runPath, duration, distance, watchId, user]);
+  }, [runPath, duration, watchId, user, useGPS]);
 
   return {
     isRunning,

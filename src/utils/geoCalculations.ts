@@ -135,9 +135,14 @@ const pointToSegmentDistance = (
   return calculateDistance(point, { lat: xx, lng: yy });
 };
 
-// Calcular puntos basados en área y robos
-export const calculatePoints = (area: number, stolen: boolean = false): number => {
-  const basePoints = Math.floor(area / 1000); // 1 punto por cada 1000 m²
-  const bonusPoints = stolen ? 50 : 0; // Bonus por robo
-  return basePoints + bonusPoints;
+// Calcular puntos considerando distancia, área y si fue robo
+export const calculatePoints = (
+  distance: number,
+  area: number,
+  stolen: boolean = false
+): number => {
+  const distancePoints = Math.round((distance / 1000) * 10);
+  const areaPoints = Math.floor(area / 2000);
+  const actionPoints = stolen ? 75 : 50;
+  return distancePoints + areaPoints + actionPoints;
 };

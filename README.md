@@ -29,6 +29,7 @@ URBANZ fusiona tres elementos:
 - **Protección temporal**: 24h de inmunidad tras conquistar
 - **Cooldown anti-spam**: 6h antes de poder reconquistar el mismo territorio
 - **Bonus de defensa**: Los territorios son más difíciles de robar según tu nivel
+- **Metadatos persistentes**: Cada territorio guarda `protected_until`, `cooldown_until`, ritmo requerido y el historial de eventos para reconstruir disputas
 
 ### 🎮 Progresión y Gamificación
 - **Sistema de niveles**: Gana XP por distancia, territorios y actividad
@@ -101,7 +102,9 @@ URBANZ fusiona tres elementos:
 
 **Puntos otorgados:**
 ```
-Puntos = (Distancia en km × 10) + (Número de territorios × 50)
+Puntos = redondear(Distancia km × 10)
+       + ⌊Área m² / 2000⌋
+       + Bonus (50 si es nuevo / 75 si es robo)
 ```
 
 ### Robar Territorios
@@ -129,6 +132,8 @@ Nivel = Math.floor(Math.sqrt(total_distance / 5)) + 1
 - Nivel 6-10: 25 territorios máx
 - Nivel 11-15: 50 territorios máx
 - Nivel 16+: 100 territorios máx
+
+> El área máxima de cada territorio también escala con tu nivel: empieza en 0.2 km² y suma 0.05 km² por nivel hasta un tope de 5 km². Si superas ese límite, la carrera se rechaza automáticamente.
 
 ### Validaciones de Carrera
 
@@ -193,6 +198,7 @@ src/
 supabase/
 ├── functions/          # Edge Functions
 │   └── get-mapbox-token/ # Proxy seguro para Mapbox token
+│   └── process-territory-claim/ # Valida y procesa conquistas/robos
 └── migrations/         # Migraciones de DB
 ```
 
@@ -244,6 +250,10 @@ supabase/
 **notifications**
 - Sistema de notificaciones
 - Tipos: achievement, challenge, friend, territory
+
+**territory_events**
+- Historial de conquistas/robos/refuerzos
+- Guarda atacante, defensor, ritmo, área y resultado
 
 ---
 
