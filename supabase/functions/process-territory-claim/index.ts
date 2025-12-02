@@ -9,7 +9,7 @@ const corsHeaders = {
 const PROTECTION_DURATION_MS = 24 * 60 * 60 * 1000
 const STEAL_COOLDOWN_MS = 6 * 60 * 60 * 1000
 const MINIMUM_AREA_M2 = 50
-const OVERLAP_THRESHOLD = 0.65
+const OVERLAP_THRESHOLD = 0.8
 const LEVEL_THRESHOLDS = [
   0,
   100,
@@ -339,6 +339,18 @@ Deno.serve(async (req) => {
       const requiredPace = calculateRequiredPace(targetTerritory.avg_pace, ownerLevel)
 
       if (avgPace > requiredPace) {
+        await supabaseAdmin
+          .from('territory_events')
+          .insert({
+            territory_id: targetTerritory.id,
+            attacker_id: user.id,
+            defender_id: targetTerritory.user_id,
+            event_type: 'steal',
+            result: 'failed',
+            overlap_ratio: highestOverlap,
+            pace: avgPace,
+            area,
+          })
         return new Response(
           JSON.stringify({ error: `Necesitas un ritmo de ${requiredPace.toFixed(2)} min/km o menos para robar este territorio` }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -346,6 +358,18 @@ Deno.serve(async (req) => {
       }
 
       if (targetTerritory.protected_until && new Date(targetTerritory.protected_until) > now) {
+        await supabaseAdmin
+          .from('territory_events')
+          .insert({
+            territory_id: targetTerritory.id,
+            attacker_id: user.id,
+            defender_id: targetTerritory.user_id,
+            event_type: 'steal',
+            result: 'failed',
+            overlap_ratio: highestOverlap,
+            pace: avgPace,
+            area,
+          })
         return new Response(
           JSON.stringify({ error: 'El territorio está protegido temporalmente' }),
           { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -361,8 +385,28 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle()
 
-      if (lastAttempt && Date.now() - new Date(lastAttempt.created_at).getTime() < STEAL_COOLDOWN_MS) {
-        const remaining = STEAL_COOLDOWN_MS - (Date.now() - new Date(lastAttempt.created_at).getTime())
+      const cooldownBlocked = targetTerritory.cooldown_until && new Date(targetTerritory.cooldown_until) > now
+      const lastAttemptBlocked = lastAttempt && Date.now() - new Date(lastAttempt.created_at).getTime() < STEAL_COOLDOWN_MS
+      if (cooldownBlocked || lastAttemptBlocked) {
+        const baseRemaining = lastAttempt
+          ? STEAL_COOLDOWN_MS - (Date.now() - new Date(lastAttempt.created_at).getTime())
+          : 0
+        const cooldownRemaining = targetTerritory.cooldown_until
+          ? new Date(targetTerritory.cooldown_until).getTime() - now.getTime()
+          : 0
+        const remaining = Math.max(baseRemaining, cooldownRemaining, 0)
+        await supabaseAdmin
+          .from('territory_events')
+          .insert({
+            territory_id: targetTerritory.id,
+            attacker_id: user.id,
+            defender_id: targetTerritory.user_id,
+            event_type: 'steal',
+            result: 'failed',
+            overlap_ratio: highestOverlap,
+            pace: avgPace,
+            area,
+          })
         return new Response(
           JSON.stringify({ error: 'Debes esperar antes de volver a atacar este territorio', cooldown: remaining }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

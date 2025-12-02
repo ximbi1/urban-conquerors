@@ -263,6 +263,7 @@ supabase/
 - Node.js 18+ y npm
 - Cuenta de Supabase
 - API key de Mapbox
+  - Si necesitas desplegar desde la CLI oficial y no tienes Node 20+, descarga el binario desde GitHub o usa Docker (`docker run supabase/cli ...`).
 
 ### Configuración
 
@@ -309,6 +310,12 @@ npm run build
 
 # Deploy frontend (Vercel, Netlify, etc.)
 # Los edge functions se despliegan automáticamente en Supabase
+
+# Desplegar la función de territorios
+/ruta/al/supabase functions deploy process-territory-claim
+
+# Desplegar migraciones/infra (asegúrate de tener supabase link configurado)
+/ruta/al/supabase db push
 ```
 
 ---

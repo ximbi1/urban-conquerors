@@ -342,7 +342,16 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       const features = filteredTerritories.map((territory: Territory) => {
         const isFriend = territory.userId ? friendIds.has(territory.userId) : false;
         const isOwn = user?.id === territory.userId;
-        
+        const protectedUntil = territory.protectedUntil ? new Date(territory.protectedUntil) : null;
+        const cooldownUntil = territory.cooldownUntil ? new Date(territory.cooldownUntil) : null;
+        const now = new Date();
+        const protectionRemaining = protectedUntil && protectedUntil > now
+          ? Math.max(0, protectedUntil.getTime() - now.getTime())
+          : null;
+        const cooldownRemaining = cooldownUntil && cooldownUntil > now
+          ? Math.max(0, cooldownUntil.getTime() - now.getTime())
+          : null;
+
         return {
           type: 'Feature' as const,
           properties: {
@@ -358,6 +367,13 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             }),
             isFriend: isFriend && !isOwn,
             isOwn,
+            status: territory.status || 'idle',
+            protectedLabel: protectionRemaining
+              ? `Protegido ${formatDuration(protectionRemaining)}`
+              : null,
+            cooldownLabel: cooldownRemaining
+              ? `Cooldown ${formatDuration(cooldownRemaining)}`
+              : null,
           },
           geometry: {
             type: 'Polygon' as const,
@@ -410,15 +426,28 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       const popupHandler = (e: mapboxgl.MapMouseEvent) => {
         if (!e.features || !e.features[0]) return;
         const props = e.features[0].properties;
+        const statusBadge = props.status === 'protected'
+          ? `<span style="padding:2px 6px;border-radius:999px;background:#22c55e1a;color:#22c55e;font-size:11px;">Protegido</span>`
+          : props.status === 'contested'
+            ? `<span style="padding:2px 6px;border-radius:999px;background:#f973161a;color:#f97316;font-size:11px;">En disputa</span>`
+            : '';
+        const timingInfo = [props.protectedLabel, props.cooldownLabel]
+          .filter(Boolean)
+          .map((label: string) => `<div style="color:#94a3b8;">${label}</div>`) // muted text
+          .join('');
         new mapboxgl.Popup()
           .setLngLat(e.lngLat)
           .setHTML(`
             <div style="padding: 12px; background: hsl(var(--card)); color: hsl(var(--foreground)); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); min-width: 200px;">
-              <div style="font-weight: 700; font-size: 16px; margin-bottom: 8px; color: hsl(var(--primary));">${props.owner}</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div style="font-weight:700;font-size:16px;color:hsl(var(--primary));">${props.owner}</div>
+                ${statusBadge}
+              </div>
               <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
                 <div><span style="color: hsl(var(--muted-foreground));">Área:</span> <strong>${props.area} m²</strong></div>
                 <div><span style="color: hsl(var(--muted-foreground));">Ritmo:</span> <strong>${props.avgPace} min/km</strong></div>
                 <div><span style="color: hsl(var(--muted-foreground));">Conquistado:</span> <strong>${props.timestamp}</strong></div>
+                ${timingInfo}
               </div>
             </div>
           `)
@@ -428,6 +457,16 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       map.current.on('click', 'territories-fill', popupHandler);
     }
   }, [territories, friendIds, user, territoryFilter]);
+
+  const formatDuration = (milliseconds: number) => {
+    const totalMinutes = Math.floor(milliseconds / (60 * 1000));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}m restantes`;
+    }
+    return `${minutes}m restantes`;
+  };
 
   // Dibujar ruta actual
   useEffect(() => {
