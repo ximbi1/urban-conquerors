@@ -4,7 +4,7 @@ import { Coordinate } from '@/types/territory';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
-import { Pause, Play, RotateCcw, X } from 'lucide-react';
+import { Pause, Play, RotateCcw, X, Download, Maximize2 } from 'lucide-react';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 interface RunReplayModalProps {
@@ -27,6 +27,7 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const animationDuration = Math.min(Math.max(path.length * 80, 2400), 12000);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     const fetchToken = async () => {
@@ -60,9 +61,11 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
 
     const map = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: 'mapbox://styles/mapbox/outdoors-v12',
       bounds,
       padding: 50,
+      pitch: 45,
+      bearing: -20,
     });
     mapRef.current = map;
 
@@ -70,6 +73,14 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
 
     map.on('load', () => {
       if (!mapRef.current) return;
+
+      mapRef.current.addSource('mapbox-dem', {
+        type: 'raster-dem',
+        url: 'mapbox://mapbox.terrain-rgb'
+      });
+
+      mapRef.current.setTerrain({ source: 'mapbox-dem', exaggeration: 1.2 });
+      mapRef.current.setPitch(50);
 
       mapRef.current.addSource('replay-route', {
         type: 'geojson',
@@ -179,9 +190,43 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
     startAnimation();
   };
 
+  const handleFullscreenToggle = () => {
+    if (!mapContainer.current) return;
+    if (!document.fullscreenElement) {
+      mapContainer.current.requestFullscreen?.().then(() => setIsFullscreen(true));
+    } else {
+      document.exitFullscreen?.().then(() => setIsFullscreen(false));
+    }
+  };
+
+  const captureScreenshot = () => {
+    if (!mapRef.current) return;
+    const canvas = mapRef.current.getCanvas();
+    const dataUrl = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = 'replay.png';
+    link.click();
+  };
+
+  const totalDistanceKm = (path.reduce((acc, curr, idx) => {
+    if (idx === 0) return 0;
+    const prev = path[idx - 1];
+    const R = 6371e3;
+    const φ1 = prev.lat * Math.PI/180;
+    const φ2 = curr.lat * Math.PI/180;
+    const Δφ = (curr.lat - prev.lat) * Math.PI/180;
+    const Δλ = (curr.lng - prev.lng) * Math.PI/180;
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return acc + R * c;
+  }, 0) / 1000).toFixed(2);
+
+  const maxElevation = '--';
+
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-fade-in">
-      <Card className="w-full max-w-4xl bg-card border-glow p-4 space-y-4 max-h-[90vh] overflow-y-auto">
+      <Card className="w-full max-w-5xl bg-card border-glow p-4 space-y-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs uppercase text-muted-foreground tracking-widest">Modo espectador</p>
@@ -198,21 +243,44 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
           <div className="text-center text-muted-foreground py-12">No hay datos suficientes para mostrar el replay.</div>
         ) : (
           <div className="space-y-4">
-            <div ref={mapContainer} className="w-full h-64 md:h-96 rounded-lg border border-border" />
-            <div className="space-y-2">
-              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-primary to-orange-500 transition-all"
-                  style={{ width: `${Math.round(progress * 100)}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Inicio</span>
-                <span>{Math.round(progress * 100)}%</span>
-                <span>Fin</span>
+            <div className="grid grid-cols-1 md:grid-cols-[3fr_1fr] gap-4">
+              <div ref={mapContainer} className="w-full h-64 md:h-96 rounded-lg border border-border overflow-hidden" />
+              <div className="bg-muted/30 rounded-lg p-4 flex flex-col gap-4">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground mb-1">Progreso</p>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-primary to-orange-500 transition-all"
+                      style={{ width: `${Math.round(progress * 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                    <span>Inicio</span>
+                    <span>{Math.round(progress * 100)}%</span>
+                    <span>Fin</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <Card className="p-3 bg-background/40 text-center">
+                    <p className="text-xs text-muted-foreground">Distancia total</p>
+                    <p className="text-xl font-display font-bold">{totalDistanceKm} km</p>
+                  </Card>
+                  <Card className="p-3 bg-background/40 text-center">
+                    <p className="text-xs text-muted-foreground">Altura máx.</p>
+                    <p className="text-xl font-display font-bold">{maxElevation}</p>
+                  </Card>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button variant="secondary" onClick={handleFullscreenToggle} className="w-full">
+                    <Maximize2 className="h-4 w-4 mr-2" /> {isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                  </Button>
+                  <Button variant="outline" onClick={captureScreenshot} className="w-full">
+                    <Download className="h-4 w-4 mr-2" /> Capturar imagen
+                  </Button>
+                </div>
               </div>
             </div>
-
+            <div className="space-y-2">
             <div className="flex items-center gap-3">
               {isPlaying ? (
                 <Button variant="secondary" onClick={handlePause} className="flex-1">
