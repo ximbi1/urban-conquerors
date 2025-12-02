@@ -1,0 +1,578 @@
+import { useEffect, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { Coordinate, Territory } from '@/types/territory';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Locate, Users, User, Globe } from 'lucide-react';
+
+interface MapViewProps {
+  runPath: Coordinate[];
+  onMapClick?: (coord: Coordinate) => void;
+  isRunning: boolean;
+  currentLocation?: Coordinate | null;
+  locationAccuracy?: number | null;
+}
+
+const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccuracy }: MapViewProps) => {
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<mapboxgl.Map | null>(null);
+  const [mapboxToken, setMapboxToken] = useState<string>('');
+  const [territories, setTerritories] = useState<Territory[]>([]);
+  const [userLocation, setUserLocation] = useState<Coordinate | null>(null);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const userAccuracyRef = useRef<any>(null);
+  const [territoryFilter, setTerritoryFilter] = useState<'all' | 'mine' | 'friends'>('all');
+  const { user } = useAuth();
+
+  // Cargar token de Mapbox desde edge function
+  useEffect(() => {
+    const fetchMapboxToken = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('get-mapbox-token');
+        if (error) throw error;
+        if (data?.token) {
+          setMapboxToken(data.token);
+        }
+      } catch (error) {
+        console.error('Error cargando token de Mapbox:', error);
+        toast.error('Error al cargar el mapa');
+      }
+    };
+    fetchMapboxToken();
+  }, []);
+
+  useEffect(() => {
+    if (!mapContainer.current || !mapboxToken) return;
+
+    mapboxgl.accessToken = mapboxToken;
+
+    map.current = new mapboxgl.Map({
+      container: mapContainer.current,
+      style: 'mapbox://styles/mapbox/dark-v11',
+      center: [2.1734, 41.3851], // Barcelona
+      zoom: 13,
+    });
+
+    map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+    // Eventos de clic para simular carrera
+    map.current.on('click', (e) => {
+      if (onMapClick && isRunning) {
+        onMapClick({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+      }
+    });
+
+    return () => {
+      markersRef.current.forEach(marker => marker.remove());
+      markersRef.current = [];
+      if (userMarkerRef.current) userMarkerRef.current.remove();
+      if (userAccuracyRef.current && map.current?.getSource('user-accuracy')) {
+        if (map.current.getLayer('user-accuracy')) {
+          map.current.removeLayer('user-accuracy');
+        }
+        map.current.removeSource('user-accuracy');
+      }
+      map.current?.remove();
+    };
+  }, [mapboxToken, isRunning, onMapClick]);
+
+  // Mostrar ubicación del usuario en tiempo real
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded() || !currentLocation) return;
+
+    // Crear o actualizar marcador del usuario con animación
+    if (!userMarkerRef.current) {
+      const el = document.createElement('div');
+      el.className = 'user-location-marker';
+      el.style.width = '24px';
+      el.style.height = '24px';
+      el.style.borderRadius = '50%';
+      el.style.backgroundColor = '#3b82f6';
+      el.style.border = '4px solid white';
+      el.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.8)';
+      
+      userMarkerRef.current = new mapboxgl.Marker({ element: el })
+        .setLngLat([currentLocation.lng, currentLocation.lat])
+        .addTo(map.current);
+    } else {
+      userMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
+    }
+
+    // Mostrar círculo de precisión
+    if (locationAccuracy && locationAccuracy < 50) {
+      if (map.current.getLayer('user-accuracy')) {
+        map.current.removeLayer('user-accuracy');
+      }
+      if (map.current.getSource('user-accuracy')) {
+        map.current.removeSource('user-accuracy');
+      }
+
+      const accuracyRadius = locationAccuracy; // en metros
+      const metersToPixelsAtMaxZoom = (meters: number, latitude: number) => {
+        return meters / 0.075 / Math.cos(latitude * Math.PI / 180);
+      };
+
+      map.current.addSource('user-accuracy', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'Point',
+            coordinates: [currentLocation.lng, currentLocation.lat],
+          },
+        },
+      });
+
+      map.current.addLayer({
+        id: 'user-accuracy',
+        type: 'circle',
+        source: 'user-accuracy',
+        paint: {
+          'circle-radius': {
+            stops: [
+              [0, 0],
+              [20, metersToPixelsAtMaxZoom(accuracyRadius, currentLocation.lat)],
+            ],
+            base: 2,
+          },
+          'circle-color': '#3b82f6',
+          'circle-opacity': 0.1,
+          'circle-stroke-color': '#3b82f6',
+          'circle-stroke-width': 1,
+          'circle-stroke-opacity': 0.3,
+        },
+      });
+    }
+  }, [currentLocation, locationAccuracy]);
+
+  // Cargar territorios desde Supabase con realtime (optimizado con límite)
+  useEffect(() => {
+    const loadFriends = async () => {
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('friend_id')
+        .eq('user_id', user.id)
+        .eq('status', 'accepted');
+
+      if (!error && data) {
+        setFriendIds(new Set(data.map(f => f.friend_id)));
+      }
+    };
+
+    loadFriends();
+  }, [user]);
+
+  useEffect(() => {
+    const loadTerritories = async () => {
+      const { data, error } = await supabase
+        .from('territories')
+        .select(`
+          *,
+          profiles:user_id (username, color)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      
+      if (error) {
+        console.error('Error cargando territorios:', error);
+        return;
+      }
+
+      if (data) {
+        const formattedTerritories: Territory[] = data.map((t: any) => ({
+          id: t.id,
+          owner: t.profiles?.username || 'Usuario',
+          userId: t.user_id,
+          coordinates: t.coordinates as Coordinate[],
+          area: t.area,
+          perimeter: t.perimeter,
+          avgPace: t.avg_pace,
+          points: t.points,
+          color: t.profiles?.color || '#8b5cf6',
+          timestamp: new Date(t.created_at).getTime(),
+          conquered: t.conquered,
+        }));
+        setTerritories(formattedTerritories);
+      }
+    };
+
+    loadTerritories();
+
+    // Suscribirse a cambios en tiempo real
+    const channel = supabase
+      .channel('territories-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'territories',
+        },
+        async (payload: any) => {
+          // Detectar robo de territorio
+          if (payload.old.user_id === user?.id && payload.new.user_id !== user?.id) {
+            const { data: thief } = await supabase
+              .from('profiles')
+              .select('username')
+              .eq('id', payload.new.user_id)
+              .single();
+            
+            toast.error('⚠️ ¡Te han robado un territorio!', {
+              description: `${thief?.username || 'Alguien'} ha conquistado tu territorio`,
+            });
+          }
+          
+          // Efecto visual si robaste un territorio
+          if (payload.new.user_id === user?.id && payload.old.user_id !== user?.id && map.current) {
+            // Flash de parpadeo en el territorio robado
+            setTimeout(() => {
+              if (!map.current?.getLayer('territories-fill')) return;
+              
+              let flashCount = 0;
+              const flashInterval = setInterval(() => {
+                if (map.current && flashCount < 4) {
+                  map.current.setPaintProperty(
+                    'territories-fill',
+                    'fill-opacity',
+                    flashCount % 2 === 0 ? 0.9 : 0.2
+                  );
+                  flashCount++;
+                } else {
+                  clearInterval(flashInterval);
+                  if (map.current) {
+                    map.current.setPaintProperty('territories-fill', 'fill-opacity', 0.4);
+                  }
+                }
+              }, 150);
+            }, 500);
+          }
+          
+          loadTerritories();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'territories',
+        },
+        async (payload: any) => {
+          // Efecto visual si el territorio es del usuario actual
+          if (payload.new.user_id === user?.id && map.current) {
+            const coords = payload.new.coordinates as Coordinate[];
+            if (coords && coords.length > 0) {
+              // Calcular centro del territorio
+              const center = coords.reduce(
+                (acc, coord) => ({
+                  lat: acc.lat + coord.lat / coords.length,
+                  lng: acc.lng + coord.lng / coords.length,
+                }),
+                { lat: 0, lng: 0 }
+              );
+              
+              // Animación de zoom suave
+              const currentZoom = map.current.getZoom();
+              map.current.flyTo({
+                center: [center.lng, center.lat],
+                zoom: Math.max(currentZoom, 16),
+                duration: 1000,
+              });
+            }
+          }
+          loadTerritories();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'territories',
+        },
+        () => {
+          loadTerritories();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Dibujar territorios en el mapa
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+
+    // Limpiar layers y sources previos
+    if (map.current.getLayer('territories-fill')) {
+      map.current.removeLayer('territories-fill');
+    }
+    if (map.current.getLayer('territories-outline')) {
+      map.current.removeLayer('territories-outline');
+    }
+    if (map.current.getSource('territories')) {
+      map.current.removeSource('territories');
+    }
+
+    if (territories.length > 0) {
+      // Filtrar territorios según el filtro seleccionado
+      const filteredTerritories = territories.filter((territory: Territory) => {
+        if (territoryFilter === 'mine') return territory.userId === user?.id;
+        if (territoryFilter === 'friends') return territory.userId && friendIds.has(territory.userId);
+        return true; // 'all'
+      });
+
+      const features = filteredTerritories.map((territory: Territory) => {
+        const isFriend = territory.userId ? friendIds.has(territory.userId) : false;
+        const isOwn = user?.id === territory.userId;
+        
+        return {
+          type: 'Feature' as const,
+          properties: {
+            color: territory.color,
+            owner: territory.owner,
+            area: Math.round(territory.area),
+            id: territory.id,
+            avgPace: territory.avgPace.toFixed(2),
+            timestamp: new Date(territory.timestamp).toLocaleDateString('es-ES', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+            }),
+            isFriend: isFriend && !isOwn,
+            isOwn,
+          },
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [
+              territory.coordinates.map(coord => [coord.lng, coord.lat]),
+            ],
+          },
+        };
+      });
+
+      map.current.addSource('territories', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features,
+        },
+      });
+
+      map.current.addLayer({
+        id: 'territories-fill',
+        type: 'fill',
+        source: 'territories',
+        paint: {
+          'fill-color': ['get', 'color'],
+          'fill-opacity': 0.4,
+        },
+      });
+
+      map.current.addLayer({
+        id: 'territories-outline',
+        type: 'line',
+        source: 'territories',
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': [
+            'case',
+            ['get', 'isOwn'], 4,
+            ['get', 'isFriend'], 3,
+            2
+          ],
+          'line-dasharray': [
+            'case',
+            ['get', 'isFriend'], ['literal', [2, 2]],
+            ['literal', [1]]
+          ],
+        },
+      });
+
+      // Tooltips mejorados
+      const popupHandler = (e: mapboxgl.MapMouseEvent) => {
+        if (!e.features || !e.features[0]) return;
+        const props = e.features[0].properties;
+        new mapboxgl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding: 12px; background: hsl(var(--card)); color: hsl(var(--foreground)); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); min-width: 200px;">
+              <div style="font-weight: 700; font-size: 16px; margin-bottom: 8px; color: hsl(var(--primary));">${props.owner}</div>
+              <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
+                <div><span style="color: hsl(var(--muted-foreground));">Área:</span> <strong>${props.area} m²</strong></div>
+                <div><span style="color: hsl(var(--muted-foreground));">Ritmo:</span> <strong>${props.avgPace} min/km</strong></div>
+                <div><span style="color: hsl(var(--muted-foreground));">Conquistado:</span> <strong>${props.timestamp}</strong></div>
+              </div>
+            </div>
+          `)
+          .addTo(map.current!);
+      };
+
+      map.current.on('click', 'territories-fill', popupHandler);
+    }
+  }, [territories, friendIds, user, territoryFilter]);
+
+  // Dibujar ruta actual
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current = [];
+
+    if (runPath.length === 0) return;
+
+    // Dibujar línea de ruta con efecto de rastro brillante
+    if (map.current.getLayer('run-path-glow')) {
+      map.current.removeLayer('run-path-glow');
+    }
+    if (map.current.getLayer('run-path')) {
+      map.current.removeLayer('run-path');
+    }
+    if (map.current.getSource('run-path')) {
+      map.current.removeSource('run-path');
+    }
+
+    map.current.addSource('run-path', {
+      type: 'geojson',
+      data: {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'LineString',
+          coordinates: runPath.map(coord => [coord.lng, coord.lat]),
+        },
+      },
+    });
+
+    // Capa de brillo/glow debajo del rastro principal
+    map.current.addLayer({
+      id: 'run-path-glow',
+      type: 'line',
+      source: 'run-path',
+      paint: {
+        'line-color': '#a855f7',
+        'line-width': 12,
+        'line-opacity': 0.3,
+        'line-blur': 4,
+      },
+    });
+
+    // Rastro principal con gradiente
+    map.current.addLayer({
+      id: 'run-path',
+      type: 'line',
+      source: 'run-path',
+      paint: {
+        'line-color': '#a855f7',
+        'line-width': 5,
+        'line-opacity': 0.9,
+      },
+    });
+
+    // Marcadores de inicio y fin
+    const startMarker = new mapboxgl.Marker({ color: '#22c55e' })
+      .setLngLat([runPath[0].lng, runPath[0].lat])
+      .addTo(map.current);
+    markersRef.current.push(startMarker);
+
+    if (runPath.length > 1) {
+      const endMarker = new mapboxgl.Marker({ color: '#ef4444' })
+        .setLngLat([runPath[runPath.length - 1].lng, runPath[runPath.length - 1].lat])
+        .addTo(map.current);
+      markersRef.current.push(endMarker);
+    }
+  }, [runPath]);
+
+  const centerOnUser = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const location = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          };
+          setUserLocation(location);
+          map.current?.flyTo({
+            center: [location.lng, location.lat],
+            zoom: 16,
+            duration: 1500,
+          });
+          toast.success('Centrado en tu ubicación');
+        },
+        (error) => {
+          toast.error('No se pudo obtener tu ubicación');
+        }
+      );
+    } else {
+      toast.error('Geolocalización no disponible');
+    }
+  };
+
+  if (!mapboxToken) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-background">
+        <div className="text-center">
+          <p className="text-muted-foreground">Cargando mapa...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full h-full">
+      <div ref={mapContainer} className="absolute inset-0" />
+      
+      {/* Filtros de territorios */}
+      <div className="absolute top-4 left-4 z-10 flex gap-2">
+        <Button
+          onClick={() => setTerritoryFilter('all')}
+          variant={territoryFilter === 'all' ? 'default' : 'secondary'}
+          size="sm"
+          className="shadow-lg"
+        >
+          <Globe className="w-4 h-4 mr-2" />
+          Todos
+        </Button>
+        <Button
+          onClick={() => setTerritoryFilter('mine')}
+          variant={territoryFilter === 'mine' ? 'default' : 'secondary'}
+          size="sm"
+          className="shadow-lg"
+        >
+          <User className="w-4 h-4 mr-2" />
+          Míos
+        </Button>
+        <Button
+          onClick={() => setTerritoryFilter('friends')}
+          variant={territoryFilter === 'friends' ? 'default' : 'secondary'}
+          size="sm"
+          className="shadow-lg"
+        >
+          <Users className="w-4 h-4 mr-2" />
+          Amigos
+        </Button>
+      </div>
+      
+      {/* Botón de centrar ubicación */}
+      <Button
+        onClick={centerOnUser}
+        className="absolute bottom-24 right-4 z-10 rounded-full shadow-lg"
+        size="icon"
+      >
+        <Locate className="w-5 h-5" />
+      </Button>
+    </div>
+  );
+};
+
+export default MapView;

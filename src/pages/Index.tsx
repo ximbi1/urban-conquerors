@@ -1,0 +1,305 @@
+import { useState, useEffect } from 'react';
+import Header from '@/components/Header';
+import BottomNav from '@/components/BottomNav';
+import MapView from '@/components/MapView';
+import RunControls from '@/components/RunControls';
+import Leagues from '@/components/Leagues';
+import Profile from '@/components/Profile';
+import RunSummary from '@/components/RunSummary';
+import Tutorial from '@/components/Tutorial';
+import Friends from '@/components/Friends';
+import Challenges from '@/components/Challenges';
+import ActivityFeed from '@/components/ActivityFeed';
+import Notifications from '@/components/Notifications';
+import Auth from '@/components/Auth';
+import GPSPermissionDialog from '@/components/GPSPermissionDialog';
+import UserProfile from '@/components/UserProfile';
+import { useRun } from '@/hooks/useRun';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGeolocation } from '@/hooks/useGeolocation';
+import { Toaster } from '@/components/ui/sonner';
+import { ImportRun } from '@/components/ImportRun';
+import { RunPredictionOverlay } from '@/components/RunPredictionOverlay';
+import { RunHistory } from '@/components/RunHistory';
+
+const Index = () => {
+  const { user, loading } = useAuth();
+  const [activeSection, setActiveSection] = useState<'home' | 'challenges' | 'friends' | 'feed' | 'notifications' | 'profile' | 'leagues'>('home');
+  const [showLeagues, setShowLeagues] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [summaryData, setSummaryData] = useState<any>(null);
+  const [viewUserProfileId, setViewUserProfileId] = useState<string | null>(null);
+
+  const {
+    isRunning,
+    isPaused,
+    runPath,
+    duration,
+    distance,
+    useGPS,
+    isSaving,
+    startRun,
+    pauseRun,
+    resumeRun,
+    addPoint,
+    stopRun,
+  } = useRun();
+
+  const {
+    currentLocation,
+    accuracy,
+    permissionGranted,
+    requestPermission,
+    startTracking,
+    stopTracking,
+  } = useGeolocation();
+
+  // Iniciar tracking cuando se conceden permisos
+  useEffect(() => {
+    if (permissionGranted) {
+      startTracking();
+    }
+    return () => {
+      stopTracking();
+    };
+  }, [permissionGranted, startTracking, stopTracking]);
+
+  const handleStopRun = async () => {
+    const result = await stopRun();
+    if (result) {
+      const avgPace = distance > 0 ? (duration / 60) / (distance / 1000) : 0;
+      const avgSpeed = duration > 0 ? (distance / 1000) / (duration / 3600) : 0;
+      setSummaryData({ 
+        ...result, 
+        distance, 
+        duration,
+        avgPace,
+        avgSpeed
+      });
+      setShowSummary(true);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Cargando...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Auth />;
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Dialog de permisos GPS */}
+      {!permissionGranted && (
+        <GPSPermissionDialog
+          onPermissionGranted={requestPermission}
+          onPermissionDenied={() => {}}
+        />
+      )}
+
+      <Header
+        onShowRanking={() => setShowLeagues(true)}
+        onShowProfile={() => setActiveSection('profile')}
+        onShowTutorial={() => setShowTutorial(true)}
+        onShowFriends={() => setActiveSection('friends')}
+        onShowChallenges={() => setActiveSection('challenges')}
+        onShowFeed={() => setActiveSection('feed')}
+        onShowNotifications={() => setActiveSection('notifications')}
+      />
+
+      {/* Mobile: Full page sections */}
+      <div className="md:hidden">
+        {activeSection === 'home' && (
+          <main className="pt-16 pb-20 h-screen relative">
+            <MapView
+              runPath={runPath}
+              onMapClick={addPoint}
+              isRunning={isRunning && !useGPS}
+              currentLocation={currentLocation}
+              locationAccuracy={accuracy}
+            />
+            <RunPredictionOverlay
+              runPath={runPath}
+              currentLocation={currentLocation}
+              isRunning={isRunning}
+            />
+          </main>
+        )}
+        {activeSection === 'challenges' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <Challenges onClose={() => setActiveSection('home')} isMobileFullPage />
+          </div>
+        )}
+        {activeSection === 'friends' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <Friends 
+              onClose={() => setActiveSection('home')} 
+              isMobileFullPage 
+              onViewUserProfile={(userId) => setViewUserProfileId(userId)}
+            />
+          </div>
+        )}
+        {activeSection === 'feed' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <ActivityFeed onClose={() => setActiveSection('home')} isMobileFullPage />
+          </div>
+        )}
+        {activeSection === 'notifications' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <Notifications onClose={() => setActiveSection('home')} isMobileFullPage />
+          </div>
+        )}
+        {activeSection === 'profile' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <Profile 
+              onClose={() => setActiveSection('home')} 
+              isMobileFullPage 
+              onImportClick={() => {
+                setActiveSection('home');
+                setShowImport(true);
+              }}
+              onHistoryClick={() => {
+                setActiveSection('home');
+                setShowHistory(true);
+              }}
+            />
+          </div>
+        )}
+        {activeSection === 'leagues' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <Leagues onClose={() => setActiveSection('home')} isMobileFullPage />
+          </div>
+        )}
+      </div>
+
+      {/* Desktop: Keep modal behavior */}
+      <div className="hidden md:block">
+        <main className="pt-16 h-screen relative">
+          <MapView
+            runPath={runPath}
+            onMapClick={addPoint}
+            isRunning={isRunning && !useGPS}
+            currentLocation={currentLocation}
+            locationAccuracy={accuracy}
+          />
+          <RunPredictionOverlay
+            runPath={runPath}
+            currentLocation={currentLocation}
+            isRunning={isRunning}
+          />
+        </main>
+      </div>
+
+      <BottomNav
+        activeSection={activeSection}
+        onShowHome={() => setActiveSection('home')}
+        onShowChallenges={() => setActiveSection('challenges')}
+        onShowFriends={() => setActiveSection('friends')}
+        onShowFeed={() => setActiveSection('feed')}
+        onShowProfile={() => setActiveSection('profile')}
+        onShowNotifications={() => setActiveSection('notifications')}
+        onShowRanking={() => setActiveSection('leagues')}
+      />
+
+      {activeSection === 'home' && !showSummary && !showHistory && (
+        <RunControls
+          isRunning={isRunning || isSaving}
+          isPaused={isPaused}
+          duration={duration}
+          distance={distance}
+          useGPS={useGPS}
+          onStart={startRun}
+          onPause={pauseRun}
+          onResume={resumeRun}
+          onStop={handleStopRun}
+        />
+      )}
+
+      {/* Desktop modals */}
+      {showLeagues && <Leagues onClose={() => setShowLeagues(false)} />}
+      {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} autoShow={false} />}
+      {activeSection === 'home' && !showLeagues && !showSummary && !showTutorial && (
+        <Tutorial onClose={() => setShowTutorial(false)} autoShow={true} />
+      )}
+      
+      {/* Desktop: Show modals for sections */}
+      <div className="hidden md:block">
+        {activeSection === 'profile' && (
+          <Profile 
+            onClose={() => setActiveSection('home')}
+            onImportClick={() => {
+              setActiveSection('home');
+              setShowImport(true);
+            }}
+            onHistoryClick={() => {
+              setActiveSection('home');
+              setShowHistory(true);
+            }}
+          />
+        )}
+        {activeSection === 'friends' && (
+          <Friends 
+            onClose={() => setActiveSection('home')} 
+            onViewUserProfile={(userId) => setViewUserProfileId(userId)}
+          />
+        )}
+        {activeSection === 'challenges' && <Challenges onClose={() => setActiveSection('home')} />}
+        {activeSection === 'feed' && <ActivityFeed onClose={() => setActiveSection('home')} />}
+        {activeSection === 'notifications' && <Notifications onClose={() => setActiveSection('home')} />}
+      </div>
+      
+      {showImport && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg">
+            <div className="mb-4 flex justify-end">
+              <button
+                onClick={() => setShowImport(false)}
+                className="text-muted-foreground hover:text-foreground text-2xl px-3"
+              >
+                ✕
+              </button>
+            </div>
+            <ImportRun onImportComplete={() => setShowImport(false)} />
+          </div>
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="fixed inset-0 z-50 md:bg-background/80 md:backdrop-blur-sm md:flex md:items-center md:justify-center md:p-4">
+          <RunHistory onClose={() => setShowHistory(false)} />
+        </div>
+      )}
+      {viewUserProfileId && (
+        <UserProfile 
+          userId={viewUserProfileId} 
+          onClose={() => setViewUserProfileId(null)} 
+        />
+      )}
+      {showSummary && summaryData && (
+        <RunSummary
+          conquered={summaryData.conquered}
+          stolen={summaryData.stolen}
+          lost={summaryData.lost}
+          pointsGained={summaryData.pointsGained}
+          distance={summaryData.distance}
+          duration={summaryData.duration}
+          avgPace={summaryData.avgPace}
+          avgSpeed={summaryData.avgSpeed}
+          onClose={() => setShowSummary(false)}
+        />
+      )}
+
+      <Toaster />
+    </div>
+  );
+};
+
+export default Index;

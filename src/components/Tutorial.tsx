@@ -1,0 +1,206 @@
+import { useState, useEffect } from 'react';
+import { X, ChevronLeft, ChevronRight, Trophy, MapPin, Zap, Target, Users, HelpCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+
+interface TutorialProps {
+  onClose: () => void;
+  autoShow?: boolean;
+}
+
+const tutorialSteps = [
+  {
+    title: '¡Bienvenido a URBANZ!',
+    description: 'La app que convierte tus carreras en una batalla por conquistar territorios. Aprende cómo funciona en solo unos pasos.',
+    icon: Trophy,
+    image: '🏃‍♂️',
+  },
+  {
+    title: 'Forma polígonos',
+    description: 'Mientras corres, traza un camino que forme un polígono cerrado. Cuando completes el círculo, ¡conquistarás ese territorio!',
+    icon: MapPin,
+    image: '🔷',
+    highlight: 'El polígono debe cerrarse para ser válido',
+  },
+  {
+    title: 'Roba territorios',
+    description: 'Si otro usuario ya conquistó una zona, puedes robarla corriendo más rápido (mejor ritmo) por el mismo perímetro. ¡La velocidad cuenta!',
+    icon: Zap,
+    image: '🔥',
+    highlight: 'Ritmo más rápido = territorio robado',
+  },
+  {
+    title: 'Gana puntos y sube de nivel',
+    description: 'Cada territorio conquistado te da puntos según su área. Acumula puntos para subir de nivel y desbloquear logros especiales.',
+    icon: Trophy,
+    image: '⭐',
+    highlight: 'Consulta tu progreso en el perfil',
+  },
+  {
+    title: 'Sistema de ligas',
+    description: '¡Compite con otros runners en tu liga! Acumula puntos para subir de Bronce a Leyenda y enfrentarte a los mejores.',
+    icon: Users,
+    image: '🏆',
+    highlight: 'Accede a las ligas desde el icono del trofeo',
+  },
+];
+
+const Tutorial = ({ onClose, autoShow = false }: TutorialProps) => {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    if (autoShow) {
+      const hasSeenTutorial = localStorage.getItem('urbanz-tutorial-seen');
+      if (hasSeenTutorial) {
+        setIsVisible(false);
+        onClose();
+      }
+    }
+  }, [autoShow, onClose]);
+
+  const handleNext = () => {
+    if (currentStep < tutorialSteps.length - 1) {
+      setCurrentStep(currentStep + 1);
+    } else {
+      handleFinish();
+    }
+  };
+
+  const handlePrev = () => {
+    if (currentStep > 0) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
+
+  const handleFinish = () => {
+    localStorage.setItem('urbanz-tutorial-seen', 'true');
+    setIsVisible(false);
+    onClose();
+  };
+
+  const handleSkip = () => {
+    localStorage.setItem('urbanz-tutorial-seen', 'true');
+    setIsVisible(false);
+    onClose();
+  };
+
+  if (!isVisible) return null;
+
+  const step = tutorialSteps[currentStep];
+  const progress = ((currentStep + 1) / tutorialSteps.length) * 100;
+  const Icon = step.icon;
+
+  return (
+    <div className="fixed inset-0 bg-background/95 backdrop-blur-md z-[70] flex items-center justify-center p-4 animate-fade-in">
+      <Card className="w-full max-w-2xl bg-gradient-to-br from-card to-card/80 border-2 border-primary/30 p-6 md:p-8 space-y-6 animate-scale-in shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+              <Icon className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm text-muted-foreground">
+                Paso {currentStep + 1} de {tutorialSteps.length}
+              </h2>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleSkip}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
+
+        {/* Progress Bar */}
+        <Progress value={progress} className="h-2" />
+
+        {/* Content */}
+        <div className="space-y-6 text-center py-6">
+          <div className="text-7xl mb-4 animate-scale-in" style={{ animationDelay: '0.1s' }}>
+            {step.image}
+          </div>
+          
+          <div className="space-y-3">
+            <h3 className="text-3xl font-display font-bold glow-primary animate-fade-in" style={{ animationDelay: '0.2s' }}>
+              {step.title}
+            </h3>
+            <p className="text-lg text-muted-foreground max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '0.3s' }}>
+              {step.description}
+            </p>
+          </div>
+
+          {step.highlight && (
+            <div className="inline-block mt-4 px-4 py-2 bg-primary/10 border border-primary/30 rounded-lg animate-fade-in" style={{ animationDelay: '0.4s' }}>
+              <p className="text-sm font-semibold text-primary flex items-center gap-2">
+                <HelpCircle className="w-4 h-4" />
+                {step.highlight}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation */}
+        <div className="flex flex-col gap-4 pt-4 border-t border-border">
+          <div className="flex justify-center">
+            <div className="flex gap-2">
+              {tutorialSteps.map((_, index) => (
+                <div
+                  key={index}
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    index === currentStep
+                      ? 'w-8 bg-primary'
+                      : index < currentStep
+                      ? 'w-2 bg-primary/50'
+                      : 'w-2 bg-border'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              onClick={handlePrev}
+              disabled={currentStep === 0}
+              className="gap-2"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span className="hidden sm:inline">Anterior</span>
+            </Button>
+
+            {currentStep === tutorialSteps.length - 1 ? (
+              <Button onClick={handleFinish} className="gap-2">
+                ¡Empezar!
+                <Trophy className="w-4 h-4" />
+              </Button>
+            ) : (
+              <Button onClick={handleNext} className="gap-2">
+                <span className="hidden sm:inline">Siguiente</span>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Skip Button */}
+        <div className="text-center pt-2">
+          <button
+            onClick={handleSkip}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors underline"
+          >
+            Saltar tutorial
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+export default Tutorial;

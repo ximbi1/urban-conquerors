@@ -1,0 +1,42 @@
+export interface Coordinate {
+  lat: number;
+  lng: number;
+}
+
+export interface Territory {
+  id: string;
+  owner: string;
+  userId?: string;
+  coordinates: Coordinate[];
+  area: number; // en m²
+  perimeter: number; // en metros
+  avgPace: number; // en min/km
+  points: number;
+  color: string;
+  timestamp: number;
+  conquered: boolean;
+}
+
+export interface Run {
+  id: string;
+  userId: string;
+  path: Coordinate[];
+  distance: number;
+  duration: number;
+  avgPace: number;
+  territoriesConquered: number;
+  territoriesStolen: number;
+  territoriesLost: number;
+  pointsGained: number;
+  timestamp: number;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  color: string;
+  totalPoints: number;
+  totalTerritories: number;
+  totalDistance: number;
+  runs: Run[];
+}
