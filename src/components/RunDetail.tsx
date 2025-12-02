@@ -1,4 +1,4 @@
-import { X, MapPin, Clock, TrendingUp, Trophy, Share2 } from 'lucide-react';
+import { X, MapPin, Clock, TrendingUp, Trophy, Share2, Play } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Run, Coordinate } from '@/types/territory';
@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { supabase } from '@/integrations/supabase/client';
 import { ShareConquest } from './ShareConquest';
+import { RunReplayModal } from './RunReplayModal';
 
 interface RunDetailProps {
   run: Run;
@@ -18,6 +19,8 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapboxToken, setMapboxToken] = useState<string>('');
   const [showShare, setShowShare] = useState(false);
+  const [showReplay, setShowReplay] = useState(false);
+  const runPath = (run.path as Coordinate[]) || [];
 
   useEffect(() => {
     fetchMapboxToken();
@@ -44,7 +47,7 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
 
     mapboxgl.accessToken = mapboxToken;
 
-    const path = run.path as Coordinate[];
+    const path = runPath;
     if (path.length === 0) return;
 
     // Calcular centro del mapa
@@ -134,17 +137,36 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
     return <ShareConquest run={run} onClose={() => setShowShare(false)} />;
   }
 
+  if (showReplay) {
+    return (
+      <RunReplayModal
+        path={runPath}
+        title="Replay de la carrera"
+        onClose={() => setShowReplay(false)}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <Card className="w-full max-w-4xl bg-card border-glow p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-display font-bold glow-primary">
-            Detalle de Carrera
-          </h2>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowShare(true)}>
-              <Share2 className="h-4 w-4 mr-2" />
-              Compartir
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-display font-bold glow-primary">
+              Detalle de Carrera
+            </h2>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowReplay(true)}
+                disabled={runPath.length < 2}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                Replay
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowShare(true)}>
+                <Share2 className="h-4 w-4 mr-2" />
+                Compartir
             </Button>
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="w-5 h-5" />

@@ -61,6 +61,7 @@ URBANZ fusiona tres elementos:
 - **Récords personales**: Mejor ritmo, carrera más larga, más territorios
 - **Responsive**: Funciona en móvil, tablet y desktop
 - **Notificaciones push**: Recibe alertas en tiempo real cuando atacan o roban tus territorios
+- **Replays animados**: Revive cada carrera desde el feed o tu historial con un modo espectador en el mapa
 
 ---
 

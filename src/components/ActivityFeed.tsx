@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, MapPin, Zap, TrendingUp, Activity, Clock } from 'lucide-react';
+import { X, MapPin, Zap, TrendingUp, Activity, Clock, PlayCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -8,6 +8,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
+import { Coordinate } from '@/types/territory';
+import { RunReplayModal } from './RunReplayModal';
 
 interface ActivityFeedProps {
   onClose: () => void;
@@ -20,7 +22,7 @@ interface FriendActivity {
   distance: number;
   duration: number;
   avg_pace: number;
-  path: any;
+  path: Coordinate[];
   territories_conquered: number;
   territories_stolen: number;
   points_gained: number;
@@ -35,6 +37,8 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
   const { user } = useAuth();
   const [activities, setActivities] = useState<FriendActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [replayPath, setReplayPath] = useState<Coordinate[] | null>(null);
+  const [replayTitle, setReplayTitle] = useState<string>('Replay de carrera');
 
   useEffect(() => {
     if (user) {
@@ -446,6 +450,22 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
                       </svg>
                     </div>
                   )}
+
+                  {activity.path && activity.path.length > 1 && (
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => {
+                          setReplayPath(activity.path);
+                          setReplayTitle(`Replay de ${activity.user.username}`);
+                        }}
+                      >
+                        <PlayCircle className="h-4 w-4 mr-1" /> Ver replay
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>
@@ -457,43 +477,17 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
 
   if (isMobileFullPage) {
     return (
-      <div className="w-full h-full flex flex-col bg-background">
-        <div ref={containerRef} className="container mx-auto px-4 py-6 space-y-4 flex-1 overflow-y-auto pb-24 relative">
-          <PullToRefreshIndicator
-            isRefreshing={isRefreshing}
-            pullDistance={pullDistance}
-            progress={progress}
-          />
-          
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-              <Activity className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-display font-bold glow-primary">
-                Feed de Actividad
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Amigos y corredores cercanos
-              </p>
-            </div>
-          </div>
-
-          {/* Activities List */}
-          {renderActivities()}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 flex items-center justify-center p-2 md:p-4 animate-fade-in bg-background/80 backdrop-blur-sm z-50">
-      <Card className="w-full max-w-2xl bg-card p-4 md:p-6 space-y-4 max-h-[90vh] flex flex-col border-glow">
-        <div className="flex-1 flex flex-col relative overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between pb-4">
-            <div className="flex items-center gap-3">
+      <>
+        <div className="w-full h-full flex flex-col bg-background">
+          <div ref={containerRef} className="container mx-auto px-4 py-6 space-y-4 flex-1 overflow-y-auto pb-24 relative">
+            <PullToRefreshIndicator
+              isRefreshing={isRefreshing}
+              pullDistance={pullDistance}
+              progress={progress}
+            />
+            
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
                 <Activity className="w-6 h-6 text-primary" />
               </div>
@@ -506,18 +500,62 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
                 </p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="w-5 h-5" />
-            </Button>
-          </div>
 
-          {/* Activities List */}
-          <ScrollArea className="flex-1 pr-4">
+            {/* Activities List */}
             {renderActivities()}
-          </ScrollArea>
+          </div>
         </div>
-      </Card>
-    </div>
+        {replayPath && (
+          <RunReplayModal
+            path={replayPath}
+            title={replayTitle}
+            onClose={() => setReplayPath(null)}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 flex items-center justify-center p-2 md:p-4 animate-fade-in bg-background/80 backdrop-blur-sm z-50">
+        <Card className="w-full max-w-2xl bg-card p-4 md:p-6 space-y-4 max-h-[90vh] flex flex-col border-glow">
+          <div className="flex-1 flex flex-col relative overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+                  <Activity className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-display font-bold glow-primary">
+                    Feed de Actividad
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Amigos y corredores cercanos
+                  </p>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={onClose}>
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            {/* Activities List */}
+            <ScrollArea className="flex-1 pr-4">
+              {renderActivities()}
+            </ScrollArea>
+          </div>
+        </Card>
+      </div>
+      {replayPath && (
+        <RunReplayModal
+          path={replayPath}
+          title={replayTitle}
+          onClose={() => setReplayPath(null)}
+        />
+      )}
+    </>
   );
 };
 
