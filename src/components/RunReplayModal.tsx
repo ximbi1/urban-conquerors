@@ -144,6 +144,16 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
     updatePathSlice(targetIndex);
     runnerMarkerRef.current?.setLngLat(coordsRef.current[targetIndex]);
 
+    if (mapRef.current && coordsRef.current[targetIndex]) {
+      mapRef.current.easeTo({
+        center: coordsRef.current[targetIndex],
+        bearing: -20 + (t * 40),
+        pitch: 45 + (t * 10),
+        duration: 400,
+        easing: (n) => n,
+      });
+    }
+
     if (t < 1) {
       animationRef.current = requestAnimationFrame(animate);
     } else {
@@ -223,6 +233,16 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
   }, 0) / 1000).toFixed(2);
 
   const maxElevation = '--';
+
+  useEffect(() => {
+    const handler = () => {
+      if (document.fullscreenElement !== mapContainer.current) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-fade-in">
