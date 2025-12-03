@@ -731,10 +731,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         </div>
       `;
 
-      const centroid = poi.coordinates.reduce((acc, coord) => ({
-        lat: acc.lat + coord.lat / poi.coordinates.length,
-        lng: acc.lng + coord.lng / poi.coordinates.length,
-      }), { lat: 0, lng: 0 });
+      const centroid = calculateCentroid(poi.coordinates);
 
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([centroid.lng, centroid.lat])
@@ -1020,3 +1017,27 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
 };
 
 export default MapView;
+  const calculateCentroid = (polygon: Coordinate[]) => {
+    if (!polygon.length) {
+      return { lat: 0, lng: 0 };
+    }
+    try {
+      const bounds = new mapboxgl.LngLatBounds(
+        [polygon[0].lng, polygon[0].lat],
+        [polygon[0].lng, polygon[0].lat]
+      );
+      polygon.forEach((coord) => {
+        bounds.extend([coord.lng, coord.lat]);
+      });
+      const center = bounds.getCenter();
+      return { lat: center.lat, lng: center.lng };
+    } catch (error) {
+      return polygon.reduce(
+        (acc, coord) => ({
+          lat: acc.lat + coord.lat / polygon.length,
+          lng: acc.lng + coord.lng / polygon.length,
+        }),
+        { lat: 0, lng: 0 }
+      );
+    }
+  };
