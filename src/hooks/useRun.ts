@@ -13,6 +13,7 @@ import {
   limitPathPoints,
   GPSPoint,
 } from '@/utils/runValidation';
+import { enqueueOfflineRun } from '@/utils/offlineQueue';
 import { calculateLevel } from '@/utils/levelSystem';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -253,6 +254,29 @@ export const useRun = () => {
         return;
       }
 
+      const saveOfflineRun = () => {
+        enqueueOfflineRun(
+          {
+            path: normalizedPath,
+            duration,
+            source: useGPS ? 'live' : 'manual',
+            userId: user.id,
+          },
+          {
+            createdAt: new Date().toISOString(),
+            distance: smoothedDistance,
+            area,
+            avgPace,
+          }
+        );
+        toast.info('Carrera guardada offline', {
+          description: 'Se sincronizará automáticamente cuando vuelvas a tener conexión',
+        });
+        setIsSaving(false);
+        setIsRunning(false);
+        setIsPaused(false);
+      };
+
       try {
         const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
           body: {
@@ -263,6 +287,10 @@ export const useRun = () => {
         });
 
         if (claimError) {
+          if (!navigator.onLine || claimError.message?.toLowerCase().includes('fetch')) {
+            saveOfflineRun();
+            return null;
+          }
           toast.error('No se pudo procesar el territorio', {
             description: claimError.message || 'Inténtalo de nuevo más tarde',
           });
@@ -309,6 +337,11 @@ export const useRun = () => {
           });
         }
       } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (!navigator.onLine || message.toLowerCase().includes('failed to fetch')) {
+          saveOfflineRun();
+          return null;
+        }
         console.error('Error guardando territorio:', error);
         toast.error('Error al guardar el territorio', { id: 'saving-run' });
         setIsSaving(false);

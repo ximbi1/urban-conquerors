@@ -36,10 +36,35 @@ interface ProfileProps {
 
 type ProfileFormData = z.infer<typeof profileSchema>;
 
-type DefenseTerritory = Pick<Territory, 'id' | 'tags' | 'poiSummary'>;
+type DefenseTerritory = Pick<Territory, 'id' | 'tags' | 'poiSummary' | 'coordinates' | 'area'> & {
+  createdAt?: string | null;
+};
 
 const SHIELD_DURATION_HOURS = 12;
 const SHIELD_COST = 150;
+
+const formatArea = (area?: number | null) => {
+  if (!area) return 'Área desconocida';
+  return `${Math.round(area).toLocaleString('es-ES')} m²`;
+};
+
+const getTerritoryLabel = (territory: DefenseTerritory) => {
+  if (territory.poiSummary) return territory.poiSummary;
+  if (territory.tags && territory.tags.length) return territory.tags[0].name;
+  return formatArea(territory.area);
+};
+
+const getTerritoryLocation = (territory: DefenseTerritory) => {
+  if (!territory.coordinates || territory.coordinates.length === 0) return null;
+  const centroid = territory.coordinates.reduce(
+    (acc, coord) => ({
+      lat: acc.lat + coord.lat / territory.coordinates.length,
+      lng: acc.lng + coord.lng / territory.coordinates.length,
+    }),
+    { lat: 0, lng: 0 }
+  );
+  return `${centroid.lat.toFixed(3)}, ${centroid.lng.toFixed(3)}`;
+};
 
 const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryClick }: ProfileProps) => {
   const { user, signOut } = useAuth();
@@ -130,7 +155,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
         supabase.from('user_shields').select('*').eq('user_id', user.id),
         supabase
           .from('territories')
-          .select('id, tags, poi_summary')
+          .select('id, tags, poi_summary, coordinates, area, created_at')
           .eq('user_id', user.id)
           .limit(50),
         supabase
@@ -151,6 +176,9 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
         id: territory.id,
         tags: territory.tags || [],
         poiSummary: territory.poi_summary || null,
+        coordinates: territory.coordinates || [],
+        area: territory.area,
+        createdAt: territory.created_at,
       }));
       setDefenseTerritories(mappedTerritories);
 
@@ -654,24 +682,46 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
             </div>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {defenseTerritories.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Aún no tienes territorios para proteger.</p>
-              ) : (
-                defenseTerritories.map((territory) => {
-                  const hasShield = Boolean(activeShields[territory.id]);
-                  const label = territory.poiSummary || territory.tags?.[0]?.name;
-                  return (
-                    <Card key={territory.id} className="p-3 bg-card/40 border-border">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-sm font-semibold">Territorio {territory.id.slice(0, 6)}</p>
-                          {label && <p className="text-xs text-primary">{label}</p>}
-                          {hasShield && (
-                            <p className="text-xs text-emerald-400">
-                              Escudo activo hasta {formatShieldExpiry(activeShields[territory.id])}
+                {defenseTerritories.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Aún no tienes territorios para proteger.</p>
+                ) : (
+                  defenseTerritories.map((territory) => {
+                    const hasShield = Boolean(activeShields[territory.id]);
+                    const label = getTerritoryLabel(territory);
+                    const locationHint = getTerritoryLocation(territory);
+                    return (
+                      <Card key={territory.id} className="p-3 bg-card/40 border-border">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="inline-flex h-2.5 w-2.5 rounded-full"
+                                style={{ backgroundColor: profile?.color || 'hsl(var(--primary))' }}
+                              />
+                              <p className="text-sm font-semibold">{label}</p>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              ID {territory.id.slice(0, 6)} · {formatArea(territory.area)}
+                              {locationHint ? ` · ${locationHint}` : ''}
                             </p>
-                          )}
-                        </div>
+                            {territory.tags && territory.tags.length > 1 && (
+                              <div className="flex flex-wrap gap-1">
+                                {territory.tags.slice(0, 3).map(tag => (
+                                  <span
+                                    key={`${territory.id}-${tag.name}`}
+                                    className="text-[10px] uppercase tracking-wide bg-muted px-2 py-0.5 rounded-full"
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {hasShield && (
+                              <p className="text-xs text-emerald-400">
+                                Escudo activo hasta {formatShieldExpiry(activeShields[territory.id])}
+                              </p>
+                            )}
+                          </div>
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <Button
                             variant="outline"

@@ -21,6 +21,9 @@ import { Toaster } from '@/components/ui/sonner';
 import { ImportRun } from '@/components/ImportRun';
 import { RunPredictionOverlay } from '@/components/RunPredictionOverlay';
 import { RunHistory } from '@/components/RunHistory';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -32,6 +35,8 @@ const Index = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [summaryData, setSummaryData] = useState<any>(null);
   const [viewUserProfileId, setViewUserProfileId] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState<boolean>(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+  const { pendingRunsCount, isSyncing: isOfflineSyncing, syncRuns } = useOfflineSync();
 
   const {
     isRunning,
@@ -66,6 +71,19 @@ const Index = () => {
       stopTracking();
     };
   }, [permissionGranted, startTracking, stopTracking]);
+
+  useEffect(() => {
+    const updateStatus = () => {
+      if (typeof navigator === 'undefined') return;
+      setIsOffline(!navigator.onLine);
+    };
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    return () => {
+      window.removeEventListener('online', updateStatus);
+      window.removeEventListener('offline', updateStatus);
+    };
+  }, []);
 
   const handleStopRun = async () => {
     const result = await stopRun();
@@ -114,6 +132,33 @@ const Index = () => {
         onShowFeed={() => setActiveSection('feed')}
         onShowNotifications={() => setActiveSection('notifications')}
       />
+
+      {(isOffline || pendingRunsCount > 0) && (
+        <div className="px-4 mt-2">
+          <Card className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-muted/20 border-dashed border-border">
+            <div>
+              <p className="text-sm font-semibold flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${isOffline ? 'bg-amber-400 animate-pulse' : 'bg-primary'}`} />
+                {isOffline ? 'Modo offline activo' : 'Carreras pendientes de sincronizar'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {isOffline
+                  ? 'Seguiremos guardando tus carreras y las subiremos cuando recuperes conexión.'
+                  : `Tienes ${pendingRunsCount} carrera${pendingRunsCount === 1 ? '' : 's'} esperando sincronización.`}
+              </p>
+            </div>
+            {pendingRunsCount > 0 && (
+              <Button
+                size="sm"
+                onClick={syncRuns}
+                disabled={isOffline || isOfflineSyncing}
+              >
+                {isOfflineSyncing ? 'Sincronizando...' : 'Sincronizar ahora'}
+              </Button>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Mobile: Full page sections */}
       <div className="md:hidden">

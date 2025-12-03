@@ -10,6 +10,7 @@ import { calculatePolygonArea, isPolygonClosed, calculateAveragePace, calculateP
 import { validateRun, limitPathPoints, smoothPath } from '@/utils/runValidation';
 import { Coordinate } from '@/types/territory';
 import { calculateLevel } from '@/utils/levelSystem';
+import { enqueueOfflineRun } from '@/utils/offlineQueue';
 
 // Verificar si una fecha está en la semana actual (lunes-domingo)
 const isInCurrentWeek = (date: Date): boolean => {
@@ -141,6 +142,26 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
         throw new Error(`Carrera no válida: ${validation.errors.join(', ')}`);
       }
 
+      const queueOfflineImport = () => {
+        enqueueOfflineRun(
+          {
+            path: normalizedPath,
+            duration: parsedData.duration,
+            source: 'import',
+            userId: user.id,
+          },
+          {
+            createdAt: parsedData.startTime.toISOString(),
+            distance: distanceMeters,
+            area,
+            avgPace,
+          }
+        );
+        toast.info('Carrera importada guardada offline', {
+          description: 'Se sincronizará automáticamente al reconectar',
+        });
+      };
+
       const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
         body: {
           path: normalizedPath,
@@ -150,7 +171,13 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
       });
 
       if (claimError || !claimResult?.success) {
-        throw new Error(claimError?.message || (claimResult as any)?.error || 'No se pudo guardar la carrera importada');
+        const message = claimError?.message || (claimResult as any)?.error;
+        if (!navigator.onLine || message?.toLowerCase?.().includes('fetch')) {
+          queueOfflineImport();
+          onImportComplete?.();
+          return;
+        }
+        throw new Error(message || 'No se pudo guardar la carrera importada');
       }
 
       const resultData = claimResult.data;
@@ -261,6 +288,36 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
       onImportComplete?.();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error al importar';
+      if (!navigator.onLine || errorMsg.toLowerCase().includes('failed to fetch')) {
+        const { data } = await supabase.auth.getUser();
+        const offlineUser = data?.user;
+        const path = gpsPointsToCoordinates(parsedData?.points || []);
+        const normalizedPath = limitPathPoints(smoothPath(path), 400);
+        if (parsedData && normalizedPath.length >= 4 && offlineUser) {
+          const distanceMeters = calculatePathDistance(normalizedPath);
+          const area = calculatePolygonArea(normalizedPath);
+          const avgPace = calculateAveragePace(distanceMeters, parsedData.duration);
+          enqueueOfflineRun(
+            {
+              path: normalizedPath,
+              duration: parsedData.duration,
+              source: 'import',
+              userId: offlineUser.id,
+            },
+            {
+              createdAt: parsedData.startTime.toISOString(),
+              distance: distanceMeters,
+              area,
+              avgPace,
+            }
+          );
+          toast.info('Carrera importada guardada offline', {
+            description: 'Se sincronizará automáticamente al reconectar',
+          });
+          setIsUploading(false);
+          return;
+        }
+      }
       setError(errorMsg);
       toast.error(errorMsg);
     } finally {
