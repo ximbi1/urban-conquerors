@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, MapPin, Zap, TrendingUp, Activity, Clock, PlayCircle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, MapPin, Zap, TrendingUp, Activity, Clock, PlayCircle, Trophy, Handshake, ThumbsUp, Sword, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -10,6 +10,7 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
 import { Coordinate } from '@/types/territory';
 import { RunReplayModal } from './RunReplayModal';
+import { toast } from 'sonner';
 
 interface ActivityFeedProps {
   onClose: () => void;
@@ -33,9 +34,30 @@ interface FriendActivity {
   };
 }
 
+interface ClanEvent {
+  id: string;
+  created_at: string;
+  event_type: string;
+  payload: any;
+  clan: {
+    id: string;
+    name: string;
+    banner_color: string | null;
+  };
+  user?: {
+    username: string;
+    avatar_url: string | null;
+  };
+}
+
+type FeedItem =
+  | { type: 'run'; data: FriendActivity }
+  | { type: 'clan'; data: ClanEvent };
+
 const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) => {
   const { user } = useAuth();
   const [activities, setActivities] = useState<FriendActivity[]>([]);
+  const [clanEvents, setClanEvents] = useState<ClanEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [replayPath, setReplayPath] = useState<Coordinate[] | null>(null);
   const [replayTitle, setReplayTitle] = useState<string>('Replay de carrera');
@@ -43,7 +65,13 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
   useEffect(() => {
     if (user) {
       loadActivities();
-      subscribeToActivities();
+      loadClanEvents();
+      const unsubscribeRuns = subscribeToActivities();
+      const unsubscribeClan = subscribeToClanFeed();
+      return () => {
+        unsubscribeRuns?.();
+        unsubscribeClan?.();
+      };
     }
   }, [user]);
 
@@ -202,8 +230,69 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
     }
   };
 
+  const loadClanEvents = async () => {
+    if (!user) return;
+    try {
+      const { data: memberships } = await supabase
+        .from('clan_members')
+        .select('clan_id')
+        .eq('user_id', user.id);
+
+      const clanIds = memberships?.map((m) => m.clan_id) || [];
+      if (!clanIds.length) {
+        setClanEvents([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('clan_feed')
+        .select(`
+          id,
+          created_at,
+          event_type,
+          payload,
+          clan:clans (id, name, banner_color),
+          user:profiles (username, avatar_url)
+        `)
+        .in('clan_id', clanIds)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('Error cargando eventos de clan:', error);
+        setClanEvents([]);
+        return;
+      }
+
+      const formatted: ClanEvent[] = (data || []).map((row: any) => ({
+        id: row.id,
+        created_at: row.created_at,
+        event_type: row.event_type,
+        payload: row.payload,
+        clan: {
+          id: row.clan?.id,
+          name: row.clan?.name || 'Clan',
+          banner_color: row.clan?.banner_color,
+        },
+        user: row.user
+          ? {
+              username: row.user.username,
+              avatar_url: row.user.avatar_url,
+            }
+          : undefined,
+      }));
+
+      setClanEvents(formatted);
+    } catch (error) {
+      console.error('Error cargando eventos de clan:', error);
+      setClanEvents([]);
+    }
+  };
+
   const { containerRef, isRefreshing, pullDistance, progress } = usePullToRefresh({
-    onRefresh: loadActivities,
+    onRefresh: async () => {
+      await Promise.all([loadActivities(), loadClanEvents()]);
+    },
     enabled: isMobileFullPage,
   });
 
@@ -219,6 +308,27 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
         },
         () => {
           loadActivities();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  };
+
+  const subscribeToClanFeed = () => {
+    const channel = supabase
+      .channel('clan-feed-events')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'clan_feed',
+        },
+        () => {
+          loadClanEvents();
         }
       )
       .subscribe();
@@ -258,218 +368,230 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
     const diffDays = Math.floor(diffHours / 24);
 
     if (diffDays > 0) {
-      return `hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
+      return `hace ${diffDays} día${diffDays !== 1 ? 's' : ''}`;
     }
     if (diffHours > 0) {
-      return `hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+      return `hace ${diffHours} hora${diffHours !== 1 ? 's' : ''}`;
     }
     if (diffMins > 0) {
-      return `hace ${diffMins} minuto${diffMins > 1 ? 's' : ''}`;
+      return `hace ${diffMins} minuto${diffMins !== 1 ? 's' : ''}`;
     }
     return 'ahora mismo';
   };
 
   const getActivityMessage = (activity: FriendActivity) => {
-    const parts = [];
-    
+    const snippets: string[] = [];
     if (activity.territories_stolen > 0) {
-      parts.push(`robó ${activity.territories_stolen} territorio${activity.territories_stolen > 1 ? 's' : ''}`);
+      snippets.push(`robó ${activity.territories_stolen} territorio${activity.territories_stolen > 1 ? 's' : ''}`);
     }
-    if (activity.territories_conquered > 0 && activity.territories_stolen === 0) {
-      parts.push(`conquistó ${activity.territories_conquered} territorio${activity.territories_conquered > 1 ? 's' : ''}`);
+    if (activity.territories_conquered > 0) {
+      snippets.push(`conquistó ${activity.territories_conquered} territorio${activity.territories_conquered > 1 ? 's' : ''}`);
     }
-    
-    return parts.length > 0 ? parts.join(' y ') : 'completó una carrera';
+    if (activity.points_gained > 0) {
+      snippets.push(`sumó ${activity.points_gained} pts`);
+    }
+    return snippets.length ? snippets.join(' · ') : 'salió a patrullar la ciudad';
   };
+
+  const handleCongratulate = (username: string) => {
+    toast.success(`Felicitaste a ${username}`);
+  };
+
+  const handleRevenge = (username: string) => {
+    toast.info(`Marcaste a ${username} para contraatacar pronto`);
+  };
+
+  const MiniMapPreview = ({ path }: { path: Coordinate[] }) => {
+    if (!path || path.length < 2) return null;
+    const lats = path.map(p => p.lat);
+    const lngs = path.map(p => p.lng);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const spanLng = maxLng - minLng || 0.0001;
+    const spanLat = maxLat - minLat || 0.0001;
+
+    const points = path.map(p => {
+      const x = ((p.lng - minLng) / spanLng) * 100;
+      const y = 60 - ((p.lat - minLat) / spanLat) * 60;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    });
+
+    return (
+      <svg viewBox="0 0 100 60" className="w-full h-20 rounded-lg bg-muted/40">
+        <defs>
+          <linearGradient id="feed-gradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#6366f1" />
+            <stop offset="100%" stopColor="#06b6d4" />
+          </linearGradient>
+          <pattern id="feed-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+            <rect width="10" height="10" fill="#0f172a" opacity="0.6" />
+            <path d="M10 0H0V10" fill="none" stroke="#1e293b" strokeWidth="0.5" />
+          </pattern>
+        </defs>
+        <rect width="100" height="60" rx="8" fill="url(#feed-grid)" />
+        <path d={`M ${points.join(' L ')}`} fill="none" stroke="url(#feed-gradient)" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    );
+  };
+
+  const renderRunCard = (activity: FriendActivity) => {
+    const badges: string[] = [];
+    if (activity.territories_stolen > 0) badges.push('🔥 Robo');
+    if (activity.territories_conquered > 2) badges.push('🏅 Dominio');
+    if (activity.points_gained > 200) badges.push('💎 Alta puntuación');
+
+    return (
+      <Card key={`run-${activity.id}`} className="p-4 bg-card/90 border-border space-y-3">
+        <div className="flex items-start gap-3">
+          <Avatar className="h-10 w-10 border-2" style={{ borderColor: activity.user.color }}>
+            <AvatarImage src={activity.user.avatar_url || undefined} />
+            <AvatarFallback>{activity.user.username[0]?.toUpperCase()}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">{activity.user.username}</p>
+                <p className="text-xs text-muted-foreground">{getTimeAgo(activity.created_at)}</p>
+              </div>
+              <div className="flex gap-1 flex-wrap justify-end">
+                {badges.map(badge => (
+                  <span key={badge} className="px-2 py-0.5 text-[11px] rounded-full bg-primary/10 text-primary font-semibold">
+                    {badge}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              {getActivityMessage(activity)} • {formatDistance(activity.distance)} • {formatPace(activity.avg_pace)} • {formatDuration(activity.duration)}
+            </p>
+          </div>
+        </div>
+        <MiniMapPreview path={activity.path} />
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <MapPin className="w-4 h-4" />
+            <span>{activity.territories_conquered} conquistados</span>
+          </div>
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Zap className="w-4 h-4" />
+            <span>{activity.points_gained} pts</span>
+          </div>
+          {activity.territories_stolen > 0 && (
+            <div className="flex items-center gap-1 text-amber-500">
+              <Sword className="w-4 h-4" />
+              <span>{activity.territories_stolen} robados</span>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => handleCongratulate(activity.user.username)}>
+            <ThumbsUp className="w-4 h-4 mr-1" /> Felicitar
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => handleRevenge(activity.user.username)}>
+            <Sword className="w-4 h-4 mr-1" /> Vengar
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setReplayPath(activity.path);
+              setReplayTitle(`Carrera de ${activity.user.username}`);
+            }}
+          >
+            <PlayCircle className="w-4 h-4 mr-1" /> Ver replay
+          </Button>
+        </div>
+      </Card>
+    );
+  };
+
+  const renderClanEventCard = (event: ClanEvent) => {
+    const icon = (() => {
+      switch (event.event_type) {
+        case 'mission_completed':
+          return <Sparkles className="w-4 h-4" />;
+        case 'territory_help':
+          return <Handshake className="w-4 h-4" />;
+        default:
+          return <Activity className="w-4 h-4" />;
+      }
+    })();
+
+    const message = (() => {
+      switch (event.event_type) {
+        case 'mission_completed':
+          return `${event.user?.username || 'Un miembro'} completó la misión ${event.payload?.missionName || ''}`;
+        case 'territory_help':
+          return `${event.user?.username || 'Un miembro'} apoyó en ${event.payload?.territoryName || 'un territorio'}`;
+        case 'new_member':
+          return `${event.user?.username || 'Nuevo miembro'} se unió al clan`;
+        default:
+          return event.payload?.message || 'Actividad reciente en tu clan';
+      }
+    })();
+
+    return (
+      <Card key={`clan-${event.id}`} className="p-4 border border-primary/20 bg-primary/5 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="h-10 w-10 rounded-full flex items-center justify-center" style={{ backgroundColor: event.clan.banner_color || 'rgba(59,130,246,0.15)' }}>
+            <Trophy className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">{event.clan.name}</p>
+                <p className="text-xs text-muted-foreground">{getTimeAgo(event.created_at)}</p>
+              </div>
+              <div className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">
+                {event.event_type.replace('_', ' ')}
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
+              {icon} <span>{message}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => toast.success('Mostrando territorio aliado')}>
+            <MapPin className="w-4 h-4 mr-1" /> Ver detalle
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => toast.info('Pronto podrás coordinar ataques desde aquí')}>
+            <Zap className="w-4 h-4 mr-1" /> Coordinar
+          </Button>
+        </div>
+      </Card>
+    );
+  };
+
+  const combinedFeed: FeedItem[] = useMemo(() => {
+    const runItems = activities.map((activity) => ({ type: 'run', data: activity }) as FeedItem);
+    const clanItems = clanEvents.map((event) => ({ type: 'clan', data: event }) as FeedItem);
+    return [...runItems, ...clanItems].sort(
+      (a, b) => new Date(b.data.created_at).getTime() - new Date(a.data.created_at).getTime()
+    );
+  }, [activities, clanEvents]);
 
   const renderActivities = () => (
     <>
-      {loading ? (
+      {loading && combinedFeed.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <div className="animate-pulse">Cargando actividades...</div>
         </div>
-      ) : activities.length === 0 ? (
+      ) : combinedFeed.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           <Activity className="w-12 h-12 mx-auto mb-3 opacity-50" />
           <p className="font-semibold">No hay actividad reciente</p>
           <p className="text-sm mt-1">
-            Las carreras de amigos y corredores cercanos aparecerán aquí
+            Las carreras de amigos, corredores cercanos y eventos de tu clan aparecerán aquí
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {activities.map((activity) => (
-            <Card
-              key={activity.id}
-              className="p-4 bg-muted/30 border-border hover:bg-muted/50 transition-colors animate-fade-in"
-            >
-              <div className="flex items-start gap-3">
-                {/* Avatar */}
-                <Avatar className="w-12 h-12 ring-2 ring-primary/20">
-                  <AvatarImage src={activity.user.avatar_url || undefined} />
-                  <AvatarFallback
-                    style={{ backgroundColor: activity.user.color }}
-                  >
-                    {activity.user.username.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <p className="font-semibold text-sm">
-                        {activity.user.username}
-                      </p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {getTimeAgo(activity.created_at)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-bold text-primary">
-                        +{activity.points_gained} pts
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Activity description */}
-                  <p className="text-sm mb-3">
-                    {getActivityMessage(activity)}
-                  </p>
-
-                  {/* Stats */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex items-center gap-2 text-xs bg-background/50 rounded px-2 py-1.5">
-                      <TrendingUp className="w-3.5 h-3.5 text-accent" />
-                      <div>
-                        <div className="font-semibold">
-                          {formatDistance(activity.distance)}
-                        </div>
-                        <div className="text-muted-foreground text-[10px]">
-                          Distancia
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs bg-background/50 rounded px-2 py-1.5">
-                      <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                      <div>
-                        <div className="font-semibold">
-                          {formatDuration(activity.duration)}
-                        </div>
-                        <div className="text-muted-foreground text-[10px]">
-                          Duración
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs bg-background/50 rounded px-2 py-1.5">
-                      <Activity className="w-3.5 h-3.5 text-muted-foreground" />
-                      <div>
-                        <div className="font-semibold">
-                          {formatPace(activity.avg_pace)}
-                        </div>
-                        <div className="text-muted-foreground text-[10px]">
-                          Ritmo
-                        </div>
-                      </div>
-                    </div>
-
-                    {activity.territories_stolen > 0 && (
-                      <div className="flex items-center gap-2 text-xs bg-destructive/10 rounded px-2 py-1.5">
-                        <Zap className="w-3.5 h-3.5 text-destructive" />
-                        <div>
-                          <div className="font-semibold">
-                            {activity.territories_stolen}
-                          </div>
-                          <div className="text-muted-foreground text-[10px]">
-                            Robados
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {activity.territories_conquered > 0 && (
-                      <div className="flex items-center gap-2 text-xs bg-primary/10 rounded px-2 py-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-primary" />
-                        <div>
-                          <div className="font-semibold">
-                            {activity.territories_conquered}
-                          </div>
-                          <div className="text-muted-foreground text-[10px]">
-                            Conquistados
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Mapa de la ruta */}
-                  {activity.path && activity.path.length > 0 && (
-                    <div className="mt-3 bg-muted/30 rounded-lg overflow-hidden h-32">
-                      <svg
-                        viewBox="0 0 400 128"
-                        className="w-full h-full"
-                        preserveAspectRatio="xMidYMid meet"
-                      >
-                        {/* Calcular bounds del path */}
-                        {(() => {
-                          const path = activity.path as Array<{ lat: number; lng: number }>;
-                          const lats = path.map(p => p.lat);
-                          const lngs = path.map(p => p.lng);
-                          const minLat = Math.min(...lats);
-                          const maxLat = Math.max(...lats);
-                          const minLng = Math.min(...lngs);
-                          const maxLng = Math.max(...lngs);
-                          
-                          const latRange = maxLat - minLat || 0.001;
-                          const lngRange = maxLng - minLng || 0.001;
-                          
-                          const padding = 20;
-                          const width = 400 - 2 * padding;
-                          const height = 128 - 2 * padding;
-                          
-                          const points = path.map(p => {
-                            const x = ((p.lng - minLng) / lngRange) * width + padding;
-                            const y = ((maxLat - p.lat) / latRange) * height + padding;
-                            return `${x},${y}`;
-                          }).join(' ');
-                          
-                          return (
-                            <polyline
-                              points={points}
-                              fill="none"
-                              stroke="hsl(var(--primary))"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          );
-                        })()}
-                      </svg>
-                    </div>
-                  )}
-
-                  {activity.path && activity.path.length > 1 && (
-                    <div className="mt-3 flex justify-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => {
-                          setReplayPath(activity.path);
-                          setReplayTitle(`Replay de ${activity.user.username}`);
-                        }}
-                      >
-                        <PlayCircle className="h-4 w-4 mr-1" /> Ver replay
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
+          {combinedFeed.map(item =>
+            item.type === 'run' ? renderRunCard(item.data) : renderClanEventCard(item.data)
+          )}
         </div>
       )}
     </>
