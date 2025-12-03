@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, UserPlus, Check, XIcon, Users, Search, Swords, Loader2 } from 'lucide-react';
+import { X, UserPlus, Check, XIcon, Users, Search, Swords, Loader2, Shield } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +53,7 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
     territories: 'Territorios',
     arena: 'Arena',
   };
+  const [friendClans, setFriendClans] = useState<Record<string, { id: string; name: string }>>({});
 
   const { containerRef, isRefreshing, pullDistance, progress } = usePullToRefresh({
     onRefresh: async () => {
@@ -88,7 +89,36 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
       return;
     }
 
-    setFriends((data || []).map(f => ({ ...f, status: f.status as 'pending' | 'accepted' | 'rejected' })));
+    const normalized = (data || []).map(f => ({ ...f, status: f.status as 'pending' | 'accepted' | 'rejected' }));
+    setFriends(normalized);
+    const ids = normalized.map((f) => f.friend_id);
+    await loadFriendClans(ids);
+  };
+
+  const loadFriendClans = async (friendIds: string[]) => {
+    if (!friendIds.length) {
+      setFriendClans({});
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('clan_members')
+        .select('user_id, clan:clans (id, name)')
+        .in('user_id', friendIds);
+
+      if (error) throw error;
+
+      const map: Record<string, { id: string; name: string }> = {};
+      (data || []).forEach((row: any) => {
+        if (row.clan) {
+          map[row.user_id] = { id: row.clan.id, name: row.clan.name };
+        }
+      });
+      setFriendClans(map);
+    } catch (error) {
+      console.error('No se pudo cargar el clan de los amigos:', error);
+    }
   };
 
   const loadPendingRequests = async () => {
@@ -552,13 +582,18 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
                           {friendship.friend_profile?.username.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="font-semibold">{friendship.friend_profile?.username}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {friendship.friend_profile?.total_points} pts •{' '}
-                          {friendship.friend_profile?.total_territories} territorios
-                        </p>
-                      </div>
+                <div>
+                  <p className="font-semibold">{friendship.friend_profile?.username}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {friendship.friend_profile?.total_points} pts •{' '}
+                    {friendship.friend_profile?.total_territories} territorios
+                  </p>
+                  {friendClans[friendship.friend_id] && (
+                    <p className="text-xs text-primary flex items-center gap-1">
+                      <Shield className="w-3 h-3" /> {friendClans[friendship.friend_id].name}
+                    </p>
+                  )}
+                </div>
                     </div>
                     <Button
                       size="sm"
@@ -730,6 +765,11 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
                         {friendship.friend_profile?.total_points} pts •{' '}
                         {friendship.friend_profile?.total_territories} territorios
                       </p>
+                      {friendClans[friendship.friend_id] && (
+                        <p className="text-xs text-primary flex items-center gap-1">
+                          <Shield className="w-3 h-3" /> {friendClans[friendship.friend_id].name}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <Button

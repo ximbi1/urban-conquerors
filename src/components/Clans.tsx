@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Shield, Sparkles, Target, Trophy, Megaphone, Trees, Droplets, Activity, Flag, Plus, TrendingUp, X, Users } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Shield, Sparkles, Target, Trophy, Megaphone, Trees, Droplets, Activity, Flag, Plus, TrendingUp, X, Users, ChevronDown } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -74,6 +74,12 @@ interface ClanEvent {
   created_at: string;
   event_type: string;
   payload: Record<string, any> | null;
+  user_id?: string | null;
+  clan?: {
+    id: string;
+    name: string;
+    banner_color: string | null;
+  };
   user?: {
     username: string;
     avatar_url: string | null;
@@ -128,6 +134,8 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
   const [message, setMessage] = useState('');
   const [messageLoading, setMessageLoading] = useState(false);
   const [leaveLoading, setLeaveLoading] = useState(false);
+  const [missionsOpen, setMissionsOpen] = useState(true);
+  const [membersOpen, setMembersOpen] = useState(true);
 
   useEffect(() => {
     if (!user) return;
@@ -228,6 +236,8 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
           created_at,
           event_type,
           payload,
+          user_id,
+          clan:clans (id, name, banner_color),
           user:profiles (username, avatar_url)
         `)
         .eq('clan_id', clanId)
@@ -277,6 +287,52 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
     } catch (error) {
       console.error('Miembros del clan no disponibles:', error);
       setClanMembers([]);
+    }
+  };
+
+  const SectionCard = ({
+    title,
+    icon,
+    isOpen,
+    onToggle,
+    children,
+  }: {
+    title: string;
+    icon: ReactNode;
+    isOpen: boolean;
+    onToggle: () => void;
+    children: ReactNode;
+  }) => (
+    <Card className="border border-border overflow-hidden">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+        onClick={onToggle}
+      >
+        <span className="flex items-center gap-2 font-semibold">
+          {icon}
+          {title}
+        </span>
+        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && <div className="px-4 pb-4 space-y-3">{children}</div>}
+    </Card>
+  );
+
+  const getClanEventMessage = (event: ClanEvent) => {
+    switch (event.event_type) {
+      case 'mission_completed':
+        return `${event.user?.username || 'Un miembro'} completó la misión ${event.payload?.missionName || ''}`;
+      case 'territory_help':
+        return `${event.user?.username || 'Un miembro'} apoyó en ${event.payload?.territoryName || 'un territorio'}`;
+      case 'run_contribution':
+        return `${event.user?.username || 'Un miembro'} aportó ${event.payload?.points || 0} pts y ${event.payload?.territories || 0} territorios al clan`;
+      case 'custom_update':
+        return event.payload?.message || 'Actualización del clan';
+      case 'new_member':
+        return `${event.user?.username || 'Nuevo miembro'} se unió al clan`;
+      default:
+        return event.payload?.message || 'Actividad reciente en tu clan';
     }
   };
 
@@ -439,7 +495,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
       setMembership(null);
       setMissions([]);
       setClanFeed([]);
-      setRecommendedPois([]);
       setClanMembers([]);
       await loadTopClans();
     } catch (error) {
@@ -484,42 +539,42 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
   });
 
   const renderClanChat = () => (
-    <Card className="p-4 flex flex-col h-full">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Megaphone className="w-4 h-4 text-primary" />
-          <div>
-            <h3 className="font-semibold">Chat del clan</h3>
-            <p className="text-xs text-muted-foreground">Organiza ofensivas y comparte novedades</p>
-          </div>
+    <Card className="border border-border overflow-hidden">
+      <div className="px-4 py-3 flex items-center justify-between bg-muted/20 border-b border-border">
+        <div>
+          <p className="text-sm font-semibold flex items-center gap-2">
+            <Megaphone className="w-4 h-4 text-primary" /> Chat del clan
+          </p>
+          <p className="text-xs text-muted-foreground">Se actualiza en tiempo real</p>
         </div>
         <Badge variant="outline" className="uppercase tracking-widest">
           {membership?.role}
         </Badge>
       </div>
-      <div className="flex-1 mt-3 space-y-3 overflow-y-auto max-h-72 pr-1">
+      <div className="px-4 py-3 flex flex-col gap-2 bg-background/60 max-h-80 overflow-y-auto">
         {clanFeed.length === 0 ? (
           <p className="text-sm text-muted-foreground">Todavía no hay mensajes. Inicia la conversación.</p>
         ) : (
-          clanFeed.map((event) => (
-            <div key={event.id} className="rounded-lg border border-border/70 p-3 bg-card/60">
-              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                <span>{event.user?.username || 'Sistema'}</span>
-                <span>{new Date(event.created_at).toLocaleString()}</span>
+          clanFeed.map((event) => {
+            const isMine = event.user_id && user && event.user_id === user.id;
+            const messageText = getClanEventMessage(event);
+            return (
+              <div key={event.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                  isMine ? 'bg-primary/20 text-primary-foreground border border-primary/30' : 'bg-card border border-border/60'
+                }`}>
+                  <div className="text-xs text-muted-foreground flex items-center gap-2 mb-1">
+                    <span>{event.user?.username || 'Sistema'}</span>
+                    <span>{new Date(event.created_at).toLocaleTimeString()}</span>
+                  </div>
+                  <p>{messageText}</p>
+                </div>
               </div>
-              <p className="text-sm">
-                {event.event_type === 'mission_completed' && `🎯 ${event.payload?.missionName || 'Misión completada'} · +${event.payload?.rewardPoints || 0} pts`}
-                {event.event_type === 'run_contribution' && `${event.user?.username || 'Un miembro'} aportó ${event.payload?.points || 0} pts y ${event.payload?.territories || 0} territorios.`}
-                {event.event_type === 'custom_update' && event.payload?.message}
-                {event.event_type === 'new_member' && `${event.user?.username || 'Nuevo miembro'} se ha unido.`}
-                {event.event_type === 'territory_help' && `${event.user?.username || 'Miembro'} reforzó ${event.payload?.territoryName || 'un territorio'}.`}
-                {!['mission_completed','run_contribution','custom_update','new_member','territory_help'].includes(event.event_type) && (event.payload?.message || 'Actividad reciente')}
-              </p>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="px-4 py-3 bg-card/80 border-t border-border space-y-2">
         <Textarea
           placeholder="Comparte la próxima misión o felicita a tus compañeros"
           value={message}
@@ -531,44 +586,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
           </Button>
         </div>
       </div>
-    </Card>
-  );
-
-  const renderMembersCard = () => (
-    <Card className="p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <Users className="w-4 h-4 text-primary" />
-        <div>
-          <h3 className="font-semibold">Miembros destacados</h3>
-          <p className="text-xs text-muted-foreground">Contribuciones recientes</p>
-        </div>
-      </div>
-      {clanMembers.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Invita a tus amigos para formar la primera escuadra.</p>
-      ) : (
-        <div className="space-y-2">
-          {clanMembers.map((member) => (
-            <div key={member.id} className="flex items-center justify-between rounded-lg border border-border/60 p-2">
-              <div className="flex items-center gap-2">
-                <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center border"
-                  style={{ borderColor: member.color || 'rgba(59,130,246,0.4)' }}
-                >
-                  {member.avatar_url ? (
-                    <img src={member.avatar_url} alt={member.username} className="h-full w-full rounded-full object-cover" />
-                  ) : (
-                    <span className="text-sm font-semibold">{member.username.charAt(0).toUpperCase()}</span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{member.username}</p>
-                  <p className="text-xs text-muted-foreground">{member.contribution_points} pts</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </Card>
   );
 
@@ -623,14 +640,13 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
       <div className="grid md:grid-cols-3 gap-4">
         <div className="md:col-span-2 space-y-4">
           {missions.length > 0 && (
-            <details className="bg-card/70 border border-border rounded-lg" open>
-              <summary className="cursor-pointer px-4 py-3 flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold">
-                  <Sparkles className="w-4 h-4 text-primary" /> Misiones colaborativas
-                </span>
-                {isRefreshing && <span className="text-xs text-muted-foreground">Actualizando...</span>}
-              </summary>
-              <div className="p-4 grid md:grid-cols-2 gap-3">
+            <SectionCard
+              title="Misiones colaborativas"
+              icon={<Sparkles className="w-4 h-4 text-primary" />}
+              isOpen={missionsOpen}
+              onToggle={() => setMissionsOpen((prev) => !prev)}
+            >
+              <div className="grid md:grid-cols-2 gap-3">
                 {missions.map((mission) => {
                   const meta = missionMeta[mission.mission_type];
                   const progressPercent = Math.min((mission.current_progress / mission.target_count) * 100, 100);
@@ -664,49 +680,47 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
                   );
                 })}
               </div>
-            </details>
+            </SectionCard>
           )}
 
           {renderClanChat()}
         </div>
 
         <div className="space-y-4">
-            <div className="space-y-3">
-              <details className="bg-card/70 border border-border rounded-lg" open>
-                <summary className="cursor-pointer px-4 py-3 font-semibold flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" /> Miembros destacados
-                </summary>
-                <div className="p-4">
-                  {clanMembers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Invita a tus amigos para formar la primera escuadra.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {clanMembers.map((member) => (
-                        <div key={member.id} className="flex items-center justify-between rounded-lg border border-border/60 p-2">
-                          <div className="flex items-center gap-2">
-                            <div
-                              className="h-8 w-8 rounded-full flex items-center justify-center border"
-                              style={{ borderColor: member.color || 'rgba(59,130,246,0.4)' }}
-                            >
-                              {member.avatar_url ? (
-                                <img src={member.avatar_url} alt={member.username} className="h-full w-full rounded-full object-cover" />
-                              ) : (
-                                <span className="text-sm font-semibold">{member.username.charAt(0).toUpperCase()}</span>
-                              )}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold">{member.username}</p>
-                              <p className="text-xs text-muted-foreground">{member.contribution_points} pts</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+          <SectionCard
+            title="Miembros destacados"
+            icon={<Users className="w-4 h-4 text-primary" />}
+            isOpen={membersOpen}
+            onToggle={() => setMembersOpen((prev) => !prev)}
+          >
+            {clanMembers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Invita a tus amigos para formar la primera escuadra.</p>
+            ) : (
+              <div className="space-y-2">
+                {clanMembers.map((member) => (
+                  <div key={member.id} className="flex items-center justify-between rounded-lg border border-border/60 p-2">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="h-8 w-8 rounded-full flex items-center justify-center border"
+                        style={{ borderColor: member.color || 'rgba(59,130,246,0.4)' }}
+                      >
+                        {member.avatar_url ? (
+                          <img src={member.avatar_url} alt={member.username} className="h-full w-full rounded-full object-cover" />
+                        ) : (
+                          <span className="text-sm font-semibold">{member.username.charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold">{member.username}</p>
+                        <p className="text-xs text-muted-foreground">{member.contribution_points} pts</p>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </details>
-            </div>
-          </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </div>
         </div>
     </>
   );

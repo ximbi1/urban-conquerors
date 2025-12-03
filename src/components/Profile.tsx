@@ -1,4 +1,4 @@
-import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, History, ShieldHalf, ShieldCheck, Loader2 } from 'lucide-react';
+import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, History, ShieldHalf, ShieldCheck, Loader2, Shield } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,6 +80,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
   const [activeShields, setActiveShields] = useState<Record<string, string>>({});
   const [applyingShield, setApplyingShield] = useState<string | null>(null);
   const [buyingShield, setBuyingShield] = useState(false);
+  const [userClan, setUserClan] = useState<{ id: string; name: string; description: string | null; banner_color?: string | null } | null>(null);
   const { unlockedAchievements } = useAchievements();
   const levelInfo = profile ? calculateLevel(profile.total_points) : null;
   
@@ -92,6 +93,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
       loadProfile();
       loadRuns();
       loadDefenseData();
+      loadUserClan();
     }
   }, [user]);
 
@@ -113,6 +115,20 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
     setAvatarUrl(data.avatar_url);
     setValue('username', data.username);
     setValue('bio', data.bio || '');
+  };
+
+  const loadUserClan = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('clan_members')
+      .select('clan:clans (id, name, description, banner_color)')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!error) {
+      setUserClan(data?.clan || null);
+    }
   };
 
   const loadRuns = async () => {
@@ -200,6 +216,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
       await loadProfile();
       await loadRuns();
       await loadDefenseData();
+      await loadUserClan();
     },
     enabled: isMobileFullPage,
   });
@@ -887,6 +904,21 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
             </Button>
           </div>
         </div>
+
+        {userClan && (
+          <Card className="p-3 border border-primary/30 bg-primary/5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase text-muted-foreground tracking-widest">Clan</p>
+                <p className="text-lg font-semibold">{userClan.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {userClan.description || 'Coordinando ofensivas urbanas.'}
+                </p>
+              </div>
+              <Shield className="w-6 h-6 text-primary" />
+            </div>
+          </Card>
+        )}
 
         {/* ... keep existing code (all profile content) */}
 
