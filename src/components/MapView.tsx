@@ -777,6 +777,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       if (poi.category === 'park' && !showParks) return;
       if (poi.category === 'fountain' && !showFountains) return;
       if (poi.category === 'district' && !showDistricts) return;
+
       const el = document.createElement('div');
       el.style.width = '28px';
       el.style.height = '28px';
@@ -790,20 +791,39 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       el.style.boxShadow = '0 3px 10px rgba(0,0,0,0.3)';
       el.innerHTML = iconMap[poi.category] || '⭐';
 
-      const popupHtml = `
-        <div style="min-width: 180px;color:#0f172a;">
-          <p style="font-weight:600;margin-bottom:4px;">${poi.name}</p>
-          <p style="font-size:12px;color:#475569;margin-bottom:6px;">Categoría: ${poi.category}</p>
-          <p style="font-size:12px;">Corre alrededor para etiquetar tu territorio como ${poi.category}.</p>
-        </div>
-      `;
-
       const centroid = calculateCentroid(poi.coordinates);
+
+      if (poi.category === 'district') {
+        el.style.background = 'rgba(59,130,246,0.85)';
+        el.addEventListener('click', (event) => {
+          event.stopPropagation();
+          setSelectedDistrictId((prev) => (prev === poi.id ? null : poi.id));
+        });
+      }
 
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([centroid.lng, centroid.lat])
-        .setPopup(new mapboxgl.Popup().setHTML(popupHtml))
         .addTo(map.current!);
+
+      if (poi.category === 'fountain') {
+        const popupHtml = `
+          <div style="min-width: 180px;color:#0f172a;">
+            <p style="font-weight:600;margin-bottom:4px;">${poi.name}</p>
+            <p style="font-size:12px;color:#475569;margin-bottom:6px;">Punto de agua potable</p>
+            <p style="font-size:12px;">Ideal para recargar agua durante la ruta.</p>
+          </div>
+        `;
+        marker.setPopup(new mapboxgl.Popup().setHTML(popupHtml));
+      } else if (poi.category === 'park') {
+        const popupHtml = `
+          <div style="min-width: 180px;color:#0f172a;">
+            <p style="font-weight:600;margin-bottom:4px;">${poi.name}</p>
+            <p style="font-size:12px;color:#475569;margin-bottom:6px;">Zona temática</p>
+            <p style="font-size:12px;">Rodea el perímetro para etiquetar tus territorios con este parque.</p>
+          </div>
+        `;
+        marker.setPopup(new mapboxgl.Popup().setHTML(popupHtml));
+      }
 
       poiMarkersRef.current.push(marker);
     });
