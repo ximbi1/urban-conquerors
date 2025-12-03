@@ -61,6 +61,8 @@ URBANZ fusiona tres elementos:
 ### 📱 Experiencia de Usuario
 - **PWA**: Instalable como app nativa
 - **Filtros de mapa**: Visualiza solo tus territorios, de amigos o todos
+- **Capas OSM**: Parques, fuentes y barrios reales (polígonos importados de OpenStreetMap) con toggles independientes
+- **Barrios interactivos**: El contorno se resalta al tocarlo y muestra área/perímetro para saber cuánto debes rodear
 - **Confirmación de parada**: AlertDialog antes de finalizar carrera
 - **Pausa incluida**: Detén temporalmente sin perder progreso
 - **Récords personales**: Mejor ritmo, carrera más larga, más territorios
@@ -84,6 +86,7 @@ URBANZ fusiona tres elementos:
 - **Mapbox GL JS** - Renderizado de mapas vectoriales
 - **Geolocation API** - Tracking GPS en tiempo real
 - **Turf.js** (utilidades de geoCalculations) - Cálculos geoespaciales
+- **Datasets OSM** - Polígonos de parques/fuentes/barrios cargados directamente en Supabase
 
 ### Backend (Supabase)
 - **PostgreSQL** - Base de datos relacional
@@ -402,7 +405,7 @@ Todas las tablas tienen RLS habilitado:
 - [x] Duelos 1v1 con amigos y tracking automático
 - [x] Temporadas con puntuación de season y reset mediante función programada
 - [x] Importación de archivos GPX/TCX y replay 3D de carreras
-- [x] Modo offline + sincronización diferida de carreras
+- [x] Modo offline + sincronización diferida de carreras (con banner en home)
 
 ### En desarrollo
 - [ ] Heatmap de zonas más disputadas y hotspots de robos

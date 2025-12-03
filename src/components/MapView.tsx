@@ -1216,7 +1216,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       )}
 
       {showDistricts && selectedDistrict && (
-        <div className="absolute bottom-4 left-4 z-[60] max-w-sm animate-fade-in">
+        <div className="absolute bottom-4 left-4 z-[80] max-w-sm animate-fade-in">
           <Card className="p-4 bg-background/95 border-glow">
             <div className="flex items-start justify-between gap-4">
               <div>
