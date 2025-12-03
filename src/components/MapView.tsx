@@ -399,21 +399,48 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   }, []);
 
   useEffect(() => {
+    const fetchCategory = async (category: MapPoi['category']) => {
+      const chunkSize = 1000;
+      let from = 0;
+      let done = false;
+      const rows: any[] = [];
+
+      while (!done) {
+        const { data, error } = await supabase
+          .from('map_pois')
+          .select('*')
+          .eq('category', category)
+          .range(from, from + chunkSize - 1);
+
+        if (error) {
+          console.error(`Error loading ${category}`, error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          rows.push(...data);
+        }
+
+        if (!data || data.length < chunkSize) {
+          done = true;
+        } else {
+          from += chunkSize;
+        }
+      }
+
+      return rows;
+    };
+
     const loadPois = async () => {
       const categories: Array<MapPoi['category']> = ['park', 'fountain', 'district'];
-      const { data, error } = await supabase
-        .from('map_pois')
-        .select('*')
-        .in('category', categories)
-        .limit(5000);
-      if (!error && data) {
-        const mapped = (data as any[]).map((poi) => ({
-          ...poi,
-          coordinates: (poi.coordinates || []) as Coordinate[],
-        }));
-        setMapPois(mapped);
-      }
+      const results = await Promise.all(categories.map(fetchCategory));
+      const aggregated = results.flat().map((poi: any) => ({
+        ...poi,
+        coordinates: (poi.coordinates || []) as Coordinate[],
+      }));
+      setMapPois(aggregated);
     };
+
     loadPois();
   }, []);
 
