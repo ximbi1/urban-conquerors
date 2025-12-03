@@ -42,6 +42,8 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   const [showParks, setShowParks] = useState(false);
   const [showFountains, setShowFountains] = useState(false);
   const [showDistricts, setShowDistricts] = useState(false);
+  const [districtFeatures, setDistrictFeatures] = useState<any[]>([]);
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
   const { user } = useAuth();
 
   const isPointInPolygon = (point: Coordinate, polygon: Coordinate[]) => {
@@ -445,6 +447,23 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   }, []);
 
   useEffect(() => {
+    const districts = mapPois
+      .filter(poi => poi.category === 'district' && poi.coordinates.length >= 3)
+      .map(poi => ({
+        type: 'Feature',
+        properties: {
+          id: poi.id,
+          name: poi.name,
+        },
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [poi.coordinates.map(coord => [coord.lng, coord.lat])],
+        },
+      }));
+    setDistrictFeatures(districts);
+  }, [mapPois]);
+
+  useEffect(() => {
     if (!user) {
       setChallengeTargets(new Set());
       return;
@@ -778,6 +797,89 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       poiMarkersRef.current.push(marker);
     });
   }, [mapPois, mapReady, showParks, showFountains, showDistricts]);
+
+  useEffect(() => {
+    if (!showDistricts) {
+      setSelectedDistrictId(null);
+    }
+  }, [showDistricts]);
+
+  useEffect(() => {
+    if (!mapReady || !map.current || !map.current.isStyleLoaded()) return;
+
+    if (map.current.getLayer('districts-outline')) {
+      map.current.removeLayer('districts-outline');
+    }
+    if (map.current.getLayer('districts-highlight')) {
+      map.current.removeLayer('districts-highlight');
+    }
+    if (map.current.getSource('districts')) {
+      map.current.removeSource('districts');
+    }
+
+    if (!showDistricts || districtFeatures.length === 0) {
+      setSelectedDistrictId(null);
+      return;
+    }
+
+    map.current.addSource('districts', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: districtFeatures,
+      },
+    });
+
+    map.current.addLayer({
+      id: 'districts-outline',
+      type: 'line',
+      source: 'districts',
+      paint: {
+        'line-color': 'rgba(147, 197, 253, 0.8)',
+        'line-width': 2,
+      },
+    });
+
+    map.current.addLayer({
+      id: 'districts-highlight',
+      type: 'fill',
+      source: 'districts',
+      filter: ['==', ['get', 'id'], ''],
+      paint: {
+        'fill-color': 'rgba(59, 130, 246, 0.25)',
+        'fill-outline-color': 'rgba(59, 130, 246, 0.4)',
+      },
+    });
+
+    const handleClick = (e: mapboxgl.MapLayerMouseEvent) => {
+      const feature = e.features && e.features[0];
+      if (!feature) return;
+      const id = feature.properties?.id as string | undefined;
+      if (!id) return;
+      setSelectedDistrictId((prev) => (prev === id ? null : id));
+    };
+
+    map.current.on('click', 'districts-outline', handleClick);
+
+    return () => {
+      if (map.current) {
+        map.current.off('click', 'districts-outline', handleClick);
+        if (map.current.getLayer('districts-outline')) map.current.removeLayer('districts-outline');
+        if (map.current.getLayer('districts-highlight')) map.current.removeLayer('districts-highlight');
+        if (map.current.getSource('districts')) map.current.removeSource('districts');
+      }
+    };
+  }, [mapReady, showDistricts, districtFeatures]);
+
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+    if (!map.current.getLayer('districts-highlight')) return;
+    if (!showDistricts || !selectedDistrictId) {
+      map.current.setFilter('districts-highlight', ['==', ['get', 'id'], '']);
+    } else {
+      map.current.setFilter('districts-highlight', ['==', ['get', 'id'], selectedDistrictId]);
+    }
+  }, [selectedDistrictId, showDistricts]);
 
   const formatDuration = (milliseconds: number) => {
     const totalMinutes = Math.floor(milliseconds / (60 * 1000));
