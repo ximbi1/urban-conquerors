@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Trophy, Target, CheckCircle2, Clock, Award } from 'lucide-react';
+import { X, Trophy, Target, CheckCircle2, Clock, Award, Trees, Droplets, Map } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -30,14 +30,31 @@ interface Challenge {
   };
 }
 
+interface Mission {
+  id: string;
+  title: string;
+  description: string;
+  mission_type: 'park' | 'fountain' | 'district';
+  target_count: number;
+  reward_points: number;
+  reward_shields: number;
+  start_date: string;
+  end_date: string;
+  progress?: number;
+  completed?: boolean;
+}
+
 const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
   const { user } = useAuth();
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loading, setLoading] = useState(true);
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [missionsLoading, setMissionsLoading] = useState(true);
 
   useEffect(() => {
     if (user) {
       loadChallenges();
+      loadMissions();
     }
   }, [user]);
 
@@ -136,6 +153,45 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
     setLoading(false);
   };
 
+  const loadMissions = async () => {
+    if (!user) return;
+    setMissionsLoading(true);
+    const now = new Date().toISOString();
+
+    const { data: missionsData, error: missionsError } = await supabase
+      .from('missions')
+      .select('*')
+      .eq('active', true)
+      .lte('start_date', now)
+      .gte('end_date', now)
+      .order('start_date', { ascending: true });
+
+    if (missionsError) {
+      console.error('Error cargando misiones:', missionsError);
+      toast.error('Error cargando misiones');
+      setMissionsLoading(false);
+      return;
+    }
+
+    const { data: missionsProgress } = await supabase
+      .from('mission_progress')
+      .select('*')
+      .eq('user_id', user.id);
+
+    const combined = (missionsData || []).map((mission) => {
+      const progressRow = missionsProgress?.find((row) => row.mission_id === mission.id);
+      return {
+        ...mission,
+        mission_type: mission.mission_type as Mission['mission_type'],
+        progress: progressRow?.progress || 0,
+        completed: progressRow?.completed || false,
+      } as Mission;
+    });
+
+    setMissions(combined);
+    setMissionsLoading(false);
+  };
+
   const joinChallenge = async (challengeId: string) => {
     if (!user) return;
 
@@ -159,7 +215,9 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
   };
 
   const { containerRef, isRefreshing, pullDistance, progress } = usePullToRefresh({
-    onRefresh: loadChallenges,
+    onRefresh: async () => {
+      await Promise.all([loadChallenges(), loadMissions()]);
+    },
     enabled: isMobileFullPage,
   });
 
@@ -178,6 +236,79 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
     };
     return labels[type as keyof typeof labels] || type;
   };
+
+  const missionIconMap: Record<Mission['mission_type'], any> = {
+    park: Trees,
+    fountain: Droplets,
+    district: Map,
+  };
+
+  const getMissionLabel = (type: Mission['mission_type']) => {
+    const labels = {
+      park: 'Parques',
+      fountain: 'Fuentes',
+      district: 'Barrios',
+    };
+    return labels[type];
+  };
+
+  const renderMissionSection = () => (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Target className="w-5 h-5 text-primary" />
+        <h3 className="text-lg font-display font-bold">Misiones dinámicas</h3>
+      </div>
+      {missionsLoading ? (
+        <Card className="p-4 bg-muted/30 border-border text-sm text-muted-foreground">
+          Cargando misiones...
+        </Card>
+      ) : missions.length === 0 ? (
+        <Card className="p-4 bg-muted/20 border-dashed border-border text-sm text-muted-foreground">
+          No hay misiones activas por ahora.
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {missions.map((mission) => {
+            const Icon = missionIconMap[mission.mission_type];
+            const progress = Math.min(mission.progress || 0, mission.target_count);
+            const percent = Math.min(100, (progress / mission.target_count) * 100);
+            return (
+              <Card key={mission.id} className="p-4 bg-card/80 border-border">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Icon className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs uppercase text-muted-foreground">{getMissionLabel(mission.mission_type)}</p>
+                        <h4 className="text-base font-semibold">{mission.title}</h4>
+                      </div>
+                      {mission.completed && (
+                        <span className="text-xs font-semibold text-emerald-500">Completada</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">{mission.description}</p>
+                    <div className="mt-3 space-y-1">
+                      <Progress value={percent} className="h-2" />
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Progreso: {progress}/{mission.target_count}</span>
+                        <span>
+                          {mission.reward_points ? `+${mission.reward_points} pts` : ''}
+                          {mission.reward_points && mission.reward_shields ? ' · ' : ''}
+                          {mission.reward_shields ? `+${mission.reward_shields} escudo` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 
   const getDaysRemaining = (endDate: string) => {
     const end = new Date(endDate);
@@ -209,6 +340,8 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
           <p className="text-muted-foreground">
             Completa desafíos semanales para ganar puntos extra y demostrar tus habilidades
           </p>
+
+          {renderMissionSection()}
 
           {/* Challenges content */}
           {loading ? (
@@ -324,6 +457,8 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
         <p className="text-muted-foreground text-sm">
           Completa desafíos semanales para ganar puntos extra y demostrar tus habilidades
         </p>
+
+        {renderMissionSection()}
 
         {/* Lista de desafíos */}
         {loading ? (

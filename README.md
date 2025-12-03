@@ -406,6 +406,7 @@ Todas las tablas tienen RLS habilitado:
 - [x] Temporadas con puntuación de season y reset mediante función programada
 - [x] Importación de archivos GPX/TCX y replay 3D de carreras
 - [x] Modo offline + sincronización diferida de carreras (con banner en home)
+- [x] Misiones dinámicas basadas en parques, fuentes y barrios de OSM
 
 ### En desarrollo
 - [ ] Heatmap de zonas más disputadas y hotspots de robos

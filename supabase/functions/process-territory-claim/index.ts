@@ -295,6 +295,110 @@ const updateTerritoryThemeTags = async (territoryId: string, runPolygon: any, po
   return tags
 }
 
+const updateMissionProgress = async (
+  userId: string,
+  poiTags: { type: string; name: string }[] | null,
+  profileState: any
+) => {
+  const validTypes = ['park', 'fountain', 'district']
+  const missionTypes = Array.from(new Set((poiTags || []).map(tag => tag.type).filter(type => validTypes.includes(type))))
+  if (!missionTypes.length) {
+    return { rewardPoints: 0, rewardShields: 0, completed: [] as string[] }
+  }
+
+  const now = new Date().toISOString()
+  const { data: missions, error } = await supabaseAdmin
+    .from('missions')
+    .select('*')
+    .eq('active', true)
+    .in('mission_type', missionTypes)
+    .lte('start_date', now)
+    .gte('end_date', now)
+
+  if (error || !missions) {
+    console.error('Error loading missions:', error)
+    return { rewardPoints: 0, rewardShields: 0, completed: [] as string[] }
+  }
+
+  const result = { rewardPoints: 0, rewardShields: 0, completed: [] as string[] }
+
+  for (const mission of missions) {
+    const { data: progressRow, error: progressError } = await supabaseAdmin
+      .from('mission_progress')
+      .select('id, progress, completed, completed_at')
+      .eq('mission_id', mission.id)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (progressError) {
+      console.error('Mission progress error', progressError)
+      continue
+    }
+
+    if (progressRow?.completed) continue
+
+    const newProgress = (progressRow?.progress || 0) + 1
+    const completedNow = newProgress >= mission.target_count
+
+    if (progressRow) {
+      await supabaseAdmin
+        .from('mission_progress')
+        .update({
+          progress: newProgress,
+          completed: completedNow,
+          completed_at: completedNow ? now : progressRow.completed_at,
+        })
+        .eq('id', progressRow.id)
+    } else {
+      await supabaseAdmin
+        .from('mission_progress')
+        .insert({
+          mission_id: mission.id,
+          user_id: userId,
+          progress: newProgress,
+          completed: completedNow,
+          completed_at: completedNow ? now : null,
+        })
+    }
+
+    if (completedNow) {
+      result.completed.push(mission.title)
+      if (mission.reward_points) {
+        profileState.total_points = (profileState.total_points || 0) + mission.reward_points
+        profileState.season_points = (profileState.season_points || 0) + mission.reward_points
+        profileState.historical_points = (profileState.historical_points || 0) + mission.reward_points
+
+        await supabaseAdmin
+          .from('profiles')
+          .update({
+            total_points: profileState.total_points,
+            season_points: profileState.season_points,
+            historical_points: profileState.historical_points,
+          })
+          .eq('id', userId)
+
+        result.rewardPoints += mission.reward_points
+      }
+
+      if (mission.reward_shields) {
+        await supabaseAdmin
+          .from('user_shields')
+          .insert({ user_id: userId, source: 'mission', charges: mission.reward_shields })
+        result.rewardShields += mission.reward_shields
+      }
+
+      await sendPushNotification(userId, {
+        title: '✅ Misión completada',
+        body: mission.title,
+        data: { url: '/challenges' },
+        tag: `mission-${mission.id}`,
+      })
+    }
+  }
+
+  return result
+}
+
 const fetchActiveShield = async (territoryId: string) => {
   const { data } = await supabaseAdmin
     .from('territory_shields')
@@ -480,6 +584,9 @@ Deno.serve(async (req) => {
     let action: 'conquered' | 'stolen' | 'reinforced' = 'conquered'
     let poiTags: { type: string; name: string }[] = []
     let challengeRewards: string[] = []
+    let missionsCompleted: string[] = []
+    let missionRewardPoints = 0
+    let missionRewardShields = 0
 
     const rewardPoints = calculateRewardPoints(distance, area, Boolean(isStealAttempt))
     pointsGained = rewardPoints
@@ -734,6 +841,18 @@ Deno.serve(async (req) => {
       challengeRewards = completedChallenges.map(ch => ch.name)
       const challengeBonus = completedChallenges.reduce((sum, ch) => sum + ch.reward_points, 0)
       pointsGained += challengeBonus
+
+      const missionResult = await updateMissionProgress(user.id, poiTags, profileState)
+      if (missionResult.rewardPoints) {
+        missionRewardPoints += missionResult.rewardPoints
+        pointsGained += missionResult.rewardPoints
+      }
+      if (missionResult.rewardShields) {
+        missionRewardShields += missionResult.rewardShields
+      }
+      if (missionResult.completed.length) {
+        missionsCompleted = [...missionsCompleted, ...missionResult.completed]
+      }
     }
 
     const { data: run } = await supabaseAdmin
@@ -785,6 +904,11 @@ Deno.serve(async (req) => {
           cooldownDuration: STEAL_COOLDOWN_MS,
           poiTags,
           challengeRewards,
+          missionsCompleted,
+          missionRewards: {
+            points: missionRewardPoints,
+            shields: missionRewardShields,
+          },
         },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
