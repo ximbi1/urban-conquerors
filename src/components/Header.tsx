@@ -135,25 +135,10 @@ const Header = ({ onShowRanking, onShowProfile, onShowFriends, onShowChallenges,
                 </Badge>
               )}
             </Button>
-            <Button variant="ghost" size="icon" onClick={onShowFeed} className="hover:bg-primary/20" title="Feed de actividad">
-              <Activity className="w-5 h-5" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onShowChallenges} className="hover:bg-primary/20" title="Ver desafíos">
-              <Target className="w-5 h-5" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onShowClans} className="hover:bg-primary/20" title="Ver clanes">
-              <Shield className="w-5 h-5" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onShowFriends} className="hover:bg-primary/20" title="Ver amigos">
-              <Users className="w-5 h-5" />
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onShowRanking} className="hover:bg-primary/20" title="Ver ranking">
-              <Trophy className="w-5 h-5" />
-            </Button>
             <Button variant="ghost" size="icon" onClick={onShowProfile} className="hover:bg-primary/20" title="Ver perfil">
               <User className="w-5 h-5" />
             </Button>
-        </div>
+          </div>
       </div>
     </header>
   );
