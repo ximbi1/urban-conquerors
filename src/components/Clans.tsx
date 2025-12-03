@@ -24,6 +24,7 @@ type ClanMissionType = 'park' | 'fountain' | 'district' | 'territories' | 'point
 
 interface ClanMembership {
   id: string;
+  clan_id: string;
   role: ClanRole;
   contribution_points: number;
   clan: {
@@ -144,6 +145,7 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         .from('clan_members')
         .select(`
           id,
+          clan_id,
           role,
           contribution_points,
           clan:clans (id, name, description, banner_color, emblem_url, total_points, territories_controlled, created_at)
@@ -162,11 +164,23 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         return;
       }
 
-      setMembership(data);
-      if (data?.clan?.id) {
+      let membershipData = data;
+      if (membershipData && !membershipData.clan && membershipData.clan_id) {
+        const { data: clanFallback } = await supabase
+          .from('clans')
+          .select('id, name, description, banner_color, emblem_url, total_points, territories_controlled, created_at')
+          .eq('id', membershipData.clan_id)
+          .maybeSingle();
+        if (clanFallback) {
+          membershipData = { ...membershipData, clan: clanFallback } as ClanMembership;
+        }
+      }
+
+      setMembership(membershipData as ClanMembership | null);
+      if (membershipData?.clan?.id) {
         await Promise.all([
-          loadClanMissions(data.clan.id),
-          loadClanFeed(data.clan.id),
+          loadClanMissions(membershipData.clan.id),
+          loadClanFeed(membershipData.clan.id),
         ]);
       } else {
         setMissions([]);
@@ -470,14 +484,14 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         </Card>
       )}
 
-      {membership && membership.clan && (
+      {membership && (
         <Card className="p-5 bg-gradient-to-br from-primary/10 via-background to-background border border-primary/30">
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm uppercase text-muted-foreground tracking-widest">Tu clan</p>
-                <h2 className="text-2xl font-display font-bold" style={{ color: membership.clan.banner_color || undefined }}>
-                  {membership.clan.name}
+                <h2 className="text-2xl font-display font-bold" style={{ color: membership.clan?.banner_color || undefined }}>
+                  {membership.clan?.name || 'Clan sin nombre'}
                 </h2>
               </div>
               <div className="flex flex-col items-end gap-2">
@@ -495,16 +509,16 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
               </div>
             </div>
             <p className="text-sm text-muted-foreground">
-              {membership.clan.description || 'Coordina las conquistas urbanas con tu escuadrón para dominar la ciudad.'}
+              {membership.clan?.description || 'Coordina las conquistas urbanas con tu escuadrón para dominar la ciudad.'}
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="p-3 rounded-lg bg-card/60 border border-border/60">
                 <p className="text-xs text-muted-foreground">Puntos totales</p>
-                <p className="text-xl font-bold">{membership.clan.total_points || 0}</p>
+                <p className="text-xl font-bold">{membership.clan?.total_points || 0}</p>
               </div>
               <div className="p-3 rounded-lg bg-card/60 border border-border/60">
                 <p className="text-xs text-muted-foreground">Territorios controlados</p>
-                <p className="text-xl font-bold">{membership.clan.territories_controlled || 0}</p>
+                <p className="text-xl font-bold">{membership.clan?.territories_controlled || 0}</p>
               </div>
               <div className="p-3 rounded-lg bg-card/60 border border-border/60">
                 <p className="text-xs text-muted-foreground">Tu aporte</p>
