@@ -67,6 +67,7 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
     const { data: challengesData, error: challengesError } = await supabase
       .from('challenges')
       .select('*')
+      .lte('start_date', new Date().toISOString())
       .gte('end_date', new Date().toISOString())
       .order('start_date', { ascending: true });
 
@@ -333,15 +334,17 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
               <Target className="w-7 h-7 text-primary" />
             </div>
             <h1 className="text-3xl font-display font-bold glow-primary">
-              Desafíos Semanales
+              Misiones y desafíos
             </h1>
           </div>
 
           <p className="text-muted-foreground">
-            Completa desafíos semanales para ganar puntos extra y demostrar tus habilidades
+            Completa misiones dinámicas y desafíos semanales para ganar recompensas extra
           </p>
 
-          {renderMissionSection()}
+          <div className="pt-4 border-t border-border">
+            {renderMissionSection()}
+          </div>
 
           {/* Challenges content */}
           {loading ? (
@@ -445,7 +448,7 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
               <Target className="w-6 h-6 text-primary" />
             </div>
             <h2 className="text-2xl font-display font-bold glow-primary">
-              Desafíos Semanales
+              Misiones y desafíos
             </h2>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} className={isMobileFullPage ? 'hidden' : ''}>
@@ -454,11 +457,12 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
         </div>
 
         {/* Descripción */}
-        <p className="text-muted-foreground text-sm">
-          Completa desafíos semanales para ganar puntos extra y demostrar tus habilidades
-        </p>
-
-        {renderMissionSection()}
+        <div className="space-y-4 text-sm text-muted-foreground">
+          <p>Completa misiones dinámicas y desafíos semanales para ganar recompensas extra.</p>
+          <div className="pt-2 border-t border-border">
+            {renderMissionSection()}
+          </div>
+        </div>
 
         {/* Lista de desafíos */}
         {loading ? (
