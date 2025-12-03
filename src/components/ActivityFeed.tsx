@@ -27,6 +27,8 @@ interface FriendActivity {
   territories_conquered: number;
   territories_stolen: number;
   points_gained: number;
+  likes_count: number;
+  liked_by_user: boolean;
   user: {
     username: string;
     avatar_url: string | null;
@@ -201,7 +203,30 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
       // Crear mapa de perfiles
       const profilesMap = new Map(profiles?.map(p => [p.id, p]) || []);
 
+      let reactionMap = new Map<string, { count: number; liked: boolean }>();
+      if (runs && runs.length > 0) {
+        const runIds = runs.map((run) => run.id);
+        const { data: reactions, error: reactionsError } = await supabase
+          .from('run_reactions')
+          .select('run_id, user_id')
+          .in('run_id', runIds);
+
+        if (reactionsError) {
+          console.error('Error cargando reacciones de carreras:', reactionsError);
+        } else {
+          reactions?.forEach((reaction) => {
+            const existing = reactionMap.get(reaction.run_id) || { count: 0, liked: false };
+            existing.count += 1;
+            if (reaction.user_id === user.id) {
+              existing.liked = true;
+            }
+            reactionMap.set(reaction.run_id, existing);
+          });
+        }
+      }
+
       const formattedActivities: FriendActivity[] = (runs || []).map((run: any) => {
+        const reactionInfo = reactionMap.get(run.id) || { count: 0, liked: false };
         const profile = profilesMap.get(run.user_id);
         return {
           id: run.id,
@@ -213,6 +238,8 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
           territories_conquered: run.territories_conquered,
           territories_stolen: run.territories_stolen,
           points_gained: run.points_gained,
+          likes_count: reactionInfo.count,
+          liked_by_user: reactionInfo.liked,
           user: {
             username: profile?.username || 'Usuario',
             avatar_url: profile?.avatar_url || null,
@@ -393,8 +420,39 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
     return snippets.length ? snippets.join(' · ') : 'salió a patrullar la ciudad';
   };
 
-  const handleCongratulate = (username: string) => {
-    toast.success(`Felicitaste a ${username}`);
+  const toggleRunCheer = async (runId: string, liked: boolean, username: string) => {
+    if (!user) return;
+    try {
+      if (liked) {
+        await supabase
+          .from('run_reactions')
+          .delete()
+          .eq('run_id', runId)
+          .eq('user_id', user.id);
+        toast.info(`Quitaste tu felicitación a ${username}`);
+      } else {
+        await supabase
+          .from('run_reactions')
+          .insert({ run_id: runId, user_id: user.id, reaction: 'cheer' })
+          .single();
+        toast.success(`Felicitaste a ${username}`);
+      }
+
+      setActivities((prev) =>
+        prev.map((activity) =>
+          activity.id === runId
+            ? {
+                ...activity,
+                likes_count: Math.max(activity.likes_count + (liked ? -1 : 1), 0),
+                liked_by_user: !liked,
+              }
+            : activity
+        )
+      );
+    } catch (error) {
+      console.error('No se pudo actualizar la reacción de la carrera:', error);
+      toast.error('Error al guardar tu felicitación');
+    }
   };
 
   const handleRevenge = (username: string) => {
@@ -486,8 +544,14 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => handleCongratulate(activity.user.username)}>
-            <ThumbsUp className="w-4 h-4 mr-1" /> Felicitar
+          <Button
+            size="sm"
+            variant={activity.liked_by_user ? 'default' : 'outline'}
+            onClick={() => toggleRunCheer(activity.id, activity.liked_by_user, activity.user.username)}
+          >
+            <ThumbsUp className="w-4 h-4 mr-1" />
+            {activity.liked_by_user ? 'Felicitado' : 'Felicitar'}
+            <span className="ml-2 text-xs text-muted-foreground">{activity.likes_count}</span>
           </Button>
           <Button size="sm" variant="ghost" onClick={() => handleRevenge(activity.user.username)}>
             <Sword className="w-4 h-4 mr-1" /> Vengar
