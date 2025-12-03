@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Shield, Sparkles, MapPin, Target, Trophy, Megaphone, Compass, Trees, Droplets, Activity, Flag, Plus, TrendingUp, X, Users } from 'lucide-react';
+import { Shield, Sparkles, Target, Trophy, Megaphone, Trees, Droplets, Activity, Flag, Plus, TrendingUp, X, Users } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -80,12 +80,6 @@ interface ClanEvent {
   };
 }
 
-interface MapPoi {
-  id: string;
-  name: string;
-  category: string;
-}
-
 const missionMeta: Record<ClanMissionType, { label: string; icon: ReactNode; accent: string; helper: string }> = {
   park: {
     label: 'Parques aliados',
@@ -125,7 +119,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
   const [missions, setMissions] = useState<ClanMission[]>([]);
   const [topClans, setTopClans] = useState<ClanSummary[]>([]);
   const [clanFeed, setClanFeed] = useState<ClanEvent[]>([]);
-  const [recommendedPois, setRecommendedPois] = useState<MapPoi[]>([]);
   const [clanMembers, setClanMembers] = useState<ClanMemberSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -169,7 +162,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         setMembership(null);
         setMissions([]);
         setClanFeed([]);
-        setRecommendedPois([]);
         return;
       }
 
@@ -195,7 +187,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
       } else {
         setMissions([]);
         setClanFeed([]);
-        setRecommendedPois([]);
         setClanMembers([]);
       }
     } catch (error) {
@@ -222,20 +213,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         mission_type: mission.mission_type as ClanMissionType,
       }));
       setMissions(parsed);
-
-      const poiCategories = Array.from(
-        new Set(
-          parsed
-            .map((mission) => mission.mission_type)
-            .filter((type) => ['park', 'fountain', 'district'].includes(type))
-        )
-      );
-
-      if (poiCategories.length) {
-        await loadRecommendedPois(poiCategories as Array<'park' | 'fountain' | 'district'>);
-      } else {
-        setRecommendedPois([]);
-      }
     } catch (error) {
       console.error('Error preparando misiones de clan:', error);
       setMissions([]);
@@ -300,27 +277,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
     } catch (error) {
       console.error('Miembros del clan no disponibles:', error);
       setClanMembers([]);
-    }
-  };
-
-  const loadRecommendedPois = async (categories: Array<'park' | 'fountain' | 'district'>) => {
-    try {
-      const { data, error } = await supabase
-        .from('map_pois')
-        .select('id, name, category')
-        .in('category', categories)
-        .limit(12);
-
-      if (error) {
-        console.error('Error cargando POIs recomendados:', error);
-        setRecommendedPois([]);
-        return;
-      }
-
-      setRecommendedPois(data || []);
-    } catch (error) {
-      console.error('POIs no disponibles:', error);
-      setRecommendedPois([]);
     }
   };
 
@@ -527,15 +483,6 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
     enabled: isMobileFullPage,
   });
 
-  const recommendedByCategory = useMemo(() => {
-    const map: Record<string, MapPoi[]> = {};
-    recommendedPois.forEach((poi) => {
-      if (!map[poi.category]) map[poi.category] = [];
-      map[poi.category].push(poi);
-    });
-    return map;
-  }, [recommendedPois]);
-
   const renderClanChat = () => (
     <Card className="p-4 flex flex-col h-full">
       <div className="flex items-center justify-between">
@@ -676,23 +623,20 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
       <div className="grid md:grid-cols-3 gap-4">
         <div className="md:col-span-2 space-y-4">
           {missions.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg flex items-center gap-2">
+            <details className="bg-card/70 border border-border rounded-lg" open>
+              <summary className="cursor-pointer px-4 py-3 flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold">
                   <Sparkles className="w-4 h-4 text-primary" /> Misiones colaborativas
-                </h3>
+                </span>
                 {isRefreshing && <span className="text-xs text-muted-foreground">Actualizando...</span>}
-              </div>
-              <div className="grid md:grid-cols-2 gap-3">
+              </summary>
+              <div className="p-4 grid md:grid-cols-2 gap-3">
                 {missions.map((mission) => {
                   const meta = missionMeta[mission.mission_type];
                   const progressPercent = Math.min((mission.current_progress / mission.target_count) * 100, 100);
                   const remaining = Math.max(mission.target_count - mission.current_progress, 0);
                   return (
-                    <Card
-                      key={mission.id}
-                      className={`p-4 border ${meta.accent} bg-gradient-to-br`}
-                    >
+                    <Card key={mission.id} className={`p-4 border ${meta.accent} bg-gradient-to-br`}>
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 font-semibold">
                           {meta.icon}
@@ -720,43 +664,50 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {Object.keys(recommendedByCategory).length > 0 && (
-            <Card className="p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-primary" />
-                <div>
-                  <h3 className="font-semibold">POIs para misiones</h3>
-                  <p className="text-sm text-muted-foreground">Lugares claves según tus retos actuales</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-3 gap-3">
-                {Object.entries(recommendedByCategory).map(([category, pois]) => (
-                  <div key={category} className="rounded-lg border border-dashed border-border/60 p-3">
-                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2">{category}</p>
-                    <ul className="space-y-1 text-sm">
-                      {pois.slice(0, 4).map((poi) => (
-                        <li key={poi.id} className="flex items-center gap-2">
-                          <Compass className="w-3 h-3 text-primary" />
-                          <span>{poi.name}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </Card>
+            </details>
           )}
 
           {renderClanChat()}
         </div>
 
         <div className="space-y-4">
-          {renderMembersCard()}
+            <div className="space-y-3">
+              <details className="bg-card/70 border border-border rounded-lg" open>
+                <summary className="cursor-pointer px-4 py-3 font-semibold flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" /> Miembros destacados
+                </summary>
+                <div className="p-4">
+                  {clanMembers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Invita a tus amigos para formar la primera escuadra.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {clanMembers.map((member) => (
+                        <div key={member.id} className="flex items-center justify-between rounded-lg border border-border/60 p-2">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="h-8 w-8 rounded-full flex items-center justify-center border"
+                              style={{ borderColor: member.color || 'rgba(59,130,246,0.4)' }}
+                            >
+                              {member.avatar_url ? (
+                                <img src={member.avatar_url} alt={member.username} className="h-full w-full rounded-full object-cover" />
+                              ) : (
+                                <span className="text-sm font-semibold">{member.username.charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold">{member.username}</p>
+                              <p className="text-xs text-muted-foreground">{member.contribution_points} pts</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+            </div>
+          </div>
         </div>
-      </div>
     </>
   );
 
