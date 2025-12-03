@@ -119,9 +119,7 @@ const Header = ({ onShowRanking, onShowProfile, onShowTutorial, onShowFriends, o
           )}
         </div>
         
-        <div className="flex items-center gap-2">
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-1">
+        <div className="flex items-center gap-1">
             <Button 
               variant="ghost" 
               size="icon" 
@@ -159,7 +157,6 @@ const Header = ({ onShowRanking, onShowProfile, onShowTutorial, onShowFriends, o
             <Button variant="ghost" size="icon" onClick={onShowProfile} className="hover:bg-primary/20" title="Ver perfil">
               <User className="w-5 h-5" />
             </Button>
-          </div>
         </div>
       </div>
     </header>

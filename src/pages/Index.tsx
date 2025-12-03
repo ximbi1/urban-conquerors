@@ -256,8 +256,6 @@ const Index = () => {
         onShowChallenges={() => setActiveSection('challenges')}
         onShowFriends={() => setActiveSection('friends')}
         onShowFeed={() => setActiveSection('feed')}
-        onShowProfile={() => setActiveSection('profile')}
-        onShowNotifications={() => setActiveSection('notifications')}
         onShowRanking={() => setActiveSection('leagues')}
         onShowClans={() => setActiveSection('clans')}
       />
