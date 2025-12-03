@@ -1,4 +1,4 @@
-import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, History } from 'lucide-react';
+import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, History, ShieldHalf, ShieldCheck, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { useEffect, useState } from 'react';
-import { Run } from '@/types/territory';
+import { Run, Territory } from '@/types/territory';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -36,6 +36,11 @@ interface ProfileProps {
 
 type ProfileFormData = z.infer<typeof profileSchema>;
 
+type DefenseTerritory = Pick<Territory, 'id' | 'tags' | 'poiSummary'>;
+
+const SHIELD_DURATION_HOURS = 12;
+const SHIELD_COST = 150;
+
 const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryClick }: ProfileProps) => {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<any>(null);
@@ -44,6 +49,12 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
   const [uploading, setUploading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showAchievements, setShowAchievements] = useState(false);
+  const [defenseLoading, setDefenseLoading] = useState(false);
+  const [defenseTerritories, setDefenseTerritories] = useState<DefenseTerritory[]>([]);
+  const [userShields, setUserShields] = useState<{ consumable: number; challenge: number }>({ consumable: 0, challenge: 0 });
+  const [activeShields, setActiveShields] = useState<Record<string, string>>({});
+  const [applyingShield, setApplyingShield] = useState<string | null>(null);
+  const [buyingShield, setBuyingShield] = useState(false);
   const { unlockedAchievements } = useAchievements();
   const levelInfo = profile ? calculateLevel(profile.total_points) : null;
   
@@ -55,6 +66,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
     if (user) {
       loadProfile();
       loadRuns();
+      loadDefenseData();
     }
   }, [user]);
 
@@ -110,10 +122,56 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
     setRuns(mappedRuns);
   };
 
+  const loadDefenseData = async () => {
+    if (!user) return;
+    setDefenseLoading(true);
+    try {
+      const [{ data: userShieldRows }, { data: territoryRows }, { data: shieldRows }] = await Promise.all([
+        supabase.from('user_shields').select('*').eq('user_id', user.id),
+        supabase
+          .from('territories')
+          .select('id, tags, poi_summary')
+          .eq('user_id', user.id)
+          .limit(50),
+        supabase
+          .from('territory_shields')
+          .select('territory_id, expires_at')
+          .eq('user_id', user.id)
+          .gt('expires_at', new Date().toISOString()),
+      ]);
+
+      const shieldMap = { consumable: 0, challenge: 0 };
+      (userShieldRows || []).forEach((row) => {
+        if (row.source === 'consumable') shieldMap.consumable += row.charges;
+        if (row.source === 'challenge') shieldMap.challenge += row.charges;
+      });
+      setUserShields(shieldMap);
+
+      const mappedTerritories: DefenseTerritory[] = (territoryRows || []).map((territory: any) => ({
+        id: territory.id,
+        tags: territory.tags || [],
+        poiSummary: territory.poi_summary || null,
+      }));
+      setDefenseTerritories(mappedTerritories);
+
+      const activeMap: Record<string, string> = {};
+      (shieldRows || []).forEach((row) => {
+        activeMap[row.territory_id] = row.expires_at;
+      });
+      setActiveShields(activeMap);
+    } catch (error) {
+      console.error('Defense center load error', error);
+      toast.error('No se pudieron cargar tus escudos');
+    } finally {
+      setDefenseLoading(false);
+    }
+  };
+
   const { containerRef, isRefreshing, pullDistance, progress } = usePullToRefresh({
     onRefresh: async () => {
       await loadProfile();
       await loadRuns();
+      await loadDefenseData();
     },
     enabled: isMobileFullPage,
   });
@@ -169,6 +227,90 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
     } finally {
       setUploading(false);
     }
+  };
+
+  const buyShield = async () => {
+    if (!user || !profile) return;
+    if ((profile.total_points || 0) < SHIELD_COST) {
+      toast.error('Necesitas más puntos para comprar un escudo');
+      return;
+    }
+    setBuyingShield(true);
+    try {
+      const updatedPoints = (profile.total_points || 0) - SHIELD_COST;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ total_points: updatedPoints })
+        .eq('id', user.id);
+      if (error) throw error;
+
+      await supabase
+        .from('user_shields')
+        .insert({ user_id: user.id, source: 'consumable', charges: 1 });
+
+      setProfile((prev: any) => prev ? { ...prev, total_points: updatedPoints } : prev);
+      setUserShields((prev) => ({ ...prev, consumable: prev.consumable + 1 }));
+      toast.success('Escudo adquirido');
+    } catch (error) {
+      console.error('Error comprando escudo', error);
+      toast.error('No se pudo comprar el escudo');
+    } finally {
+      setBuyingShield(false);
+    }
+  };
+
+  const applyShield = async (territoryId: string, source: 'consumable' | 'challenge') => {
+    if (!user) return;
+    if (userShields[source] <= 0) {
+      toast.error('No tienes escudos de este tipo');
+      return;
+    }
+    const applyingKey = `${territoryId}-${source}`;
+    setApplyingShield(applyingKey);
+    try {
+      await supabase
+        .from('territory_shields')
+        .delete()
+        .eq('territory_id', territoryId);
+
+      const expires = new Date(Date.now() + SHIELD_DURATION_HOURS * 60 * 60 * 1000).toISOString();
+      await supabase
+        .from('territory_shields')
+        .insert({ territory_id: territoryId, user_id: user.id, shield_type: source, expires_at: expires });
+
+      const { data } = await supabase
+        .from('user_shields')
+        .select('id, charges')
+        .eq('user_id', user.id)
+        .eq('source', source)
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      if (data && data[0]) {
+        const newCharges = Math.max(0, data[0].charges - 1);
+        await supabase
+          .from('user_shields')
+          .update({ charges: newCharges })
+          .eq('id', data[0].id);
+      }
+
+      setUserShields((prev) => ({ ...prev, [source]: Math.max(0, prev[source] - 1) }));
+      setActiveShields((prev) => ({ ...prev, [territoryId]: expires }));
+      toast.success('Escudo activado');
+    } catch (error) {
+      console.error('Error aplicando escudo', error);
+      toast.error('No se pudo activar el escudo');
+    } finally {
+      setApplyingShield(null);
+    }
+  };
+
+  const formatShieldExpiry = (iso: string) => {
+    const expires = new Date(iso);
+    return expires.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   const onSubmit = async (data: ProfileFormData) => {
@@ -472,6 +614,94 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
               </Button>
             )}
           </div>
+        </div>
+
+        <div className="space-y-4 p-4 rounded-lg bg-muted/20 border border-border">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Centro de defensa</p>
+              <h3 className="text-lg font-display font-bold">Escudos y territorios</h3>
+            </div>
+            <Button size="sm" variant="ghost" disabled={defenseLoading} onClick={loadDefenseData}>
+              {defenseLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Actualizar
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Card className="p-4 bg-card/40 border-border text-center">
+              <ShieldHalf className="w-5 h-5 mx-auto mb-2 text-primary" />
+              <p className="text-sm text-muted-foreground">Escudos comprados</p>
+              <p className="text-2xl font-display font-bold">{userShields.consumable}</p>
+            </Card>
+            <Card className="p-4 bg-card/40 border-border text-center">
+              <ShieldCheck className="w-5 h-5 mx-auto mb-2 text-secondary" />
+              <p className="text-sm text-muted-foreground">Escudos por logros</p>
+              <p className="text-2xl font-display font-bold">{userShields.challenge}</p>
+            </Card>
+            <Card className="p-4 bg-card/40 border-border text-center">
+              <p className="text-sm text-muted-foreground">Puntos disponibles</p>
+              <p className="text-2xl font-display font-bold">{profile.total_points || 0}</p>
+              <Button className="mt-2" size="sm" disabled={buyingShield} onClick={buyShield}>
+                {buyingShield && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Comprar escudo ({SHIELD_COST})
+              </Button>
+            </Card>
+          </div>
+          {defenseLoading ? (
+            <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              Preparando tus territorios...
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {defenseTerritories.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Aún no tienes territorios para proteger.</p>
+              ) : (
+                defenseTerritories.map((territory) => {
+                  const hasShield = Boolean(activeShields[territory.id]);
+                  const label = territory.poiSummary || territory.tags?.[0]?.name;
+                  return (
+                    <Card key={territory.id} className="p-3 bg-card/40 border-border">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">Territorio {territory.id.slice(0, 6)}</p>
+                          {label && <p className="text-xs text-primary">{label}</p>}
+                          {hasShield && (
+                            <p className="text-xs text-emerald-400">
+                              Escudo activo hasta {formatShieldExpiry(activeShields[territory.id])}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={userShields.challenge <= 0 || hasShield || applyingShield === `${territory.id}-challenge`}
+                            onClick={() => applyShield(territory.id, 'challenge')}
+                          >
+                            {applyingShield === `${territory.id}-challenge` && (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            )}
+                            Escudo logros
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={userShields.consumable <= 0 || hasShield || applyingShield === `${territory.id}-consumable`}
+                            onClick={() => applyShield(territory.id, 'consumable')}
+                          >
+                            {applyingShield === `${territory.id}-consumable` && (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            )}
+                            Escudo 12h
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
 
         {/* Récords Personales */}
