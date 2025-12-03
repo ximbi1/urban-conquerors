@@ -1,4 +1,4 @@
-import { Home, Target, Users, Activity, User, Bell, Trophy } from 'lucide-react';
+import { Home, Target, Users, Activity, User, Bell, Trophy, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useEffect, useState } from 'react';
 
 interface BottomNavProps {
-  activeSection: 'home' | 'challenges' | 'friends' | 'feed' | 'notifications' | 'profile' | 'leagues';
+  activeSection: 'home' | 'challenges' | 'friends' | 'feed' | 'notifications' | 'profile' | 'leagues' | 'clans';
   onShowHome: () => void;
   onShowChallenges: () => void;
   onShowFriends: () => void;
@@ -14,6 +14,7 @@ interface BottomNavProps {
   onShowProfile: () => void;
   onShowNotifications: () => void;
   onShowRanking: () => void;
+  onShowClans: () => void;
 }
 
 const BottomNav = ({ 
@@ -24,7 +25,8 @@ const BottomNav = ({
   onShowFeed, 
   onShowProfile,
   onShowNotifications,
-  onShowRanking 
+  onShowRanking,
+  onShowClans
 }: BottomNavProps) => {
   const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -110,6 +112,17 @@ const BottomNav = ({
           onClick={onShowChallenges}
         >
           <Target className="h-5 w-5" />
+        </Button>
+
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className={`flex-col h-12 w-12 hover:bg-primary/20 transition-colors ${
+            activeSection === 'clans' ? 'text-primary bg-primary/10' : ''
+          }`}
+          onClick={onShowClans}
+        >
+          <Shield className="h-5 w-5" />
         </Button>
 
         <Button 

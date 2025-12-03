@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, MapPin, Zap, TrendingUp, Activity, Clock, PlayCircle, Trophy, Handshake, ThumbsUp, Sword, Sparkles } from 'lucide-react';
+import { X, MapPin, Zap, TrendingUp, Activity, Clock, PlayCircle, Trophy, Handshake, ThumbsUp, Sword, Sparkles, Megaphone, Users } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -514,6 +514,12 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
           return <Sparkles className="w-4 h-4" />;
         case 'territory_help':
           return <Handshake className="w-4 h-4" />;
+        case 'run_contribution':
+          return <TrendingUp className="w-4 h-4" />;
+        case 'custom_update':
+          return <Megaphone className="w-4 h-4" />;
+        case 'new_member':
+          return <Users className="w-4 h-4" />;
         default:
           return <Activity className="w-4 h-4" />;
       }
@@ -525,6 +531,10 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
           return `${event.user?.username || 'Un miembro'} completó la misión ${event.payload?.missionName || ''}`;
         case 'territory_help':
           return `${event.user?.username || 'Un miembro'} apoyó en ${event.payload?.territoryName || 'un territorio'}`;
+        case 'run_contribution':
+          return `${event.user?.username || 'Un miembro'} aportó ${event.payload?.points || 0} pts y ${event.payload?.territories || 0} territorios al clan`;
+        case 'custom_update':
+          return event.payload?.message || 'Actualización del clan';
         case 'new_member':
           return `${event.user?.username || 'Nuevo miembro'} se unió al clan`;
         default:

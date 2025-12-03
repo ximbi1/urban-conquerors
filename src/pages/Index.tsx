@@ -24,10 +24,11 @@ import { RunHistory } from '@/components/RunHistory';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import Clans from '@/components/Clans';
 
 const Index = () => {
   const { user, loading } = useAuth();
-  const [activeSection, setActiveSection] = useState<'home' | 'challenges' | 'friends' | 'feed' | 'notifications' | 'profile' | 'leagues'>('home');
+  const [activeSection, setActiveSection] = useState<'home' | 'challenges' | 'friends' | 'feed' | 'notifications' | 'profile' | 'leagues' | 'clans'>('home');
   const [showLeagues, setShowLeagues] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -129,6 +130,7 @@ const Index = () => {
         onShowTutorial={() => setShowTutorial(true)}
         onShowFriends={() => setActiveSection('friends')}
         onShowChallenges={() => setActiveSection('challenges')}
+        onShowClans={() => setActiveSection('clans')}
         onShowFeed={() => setActiveSection('feed')}
         onShowNotifications={() => setActiveSection('notifications')}
       />
@@ -192,6 +194,11 @@ const Index = () => {
             />
           </div>
         )}
+        {activeSection === 'clans' && (
+          <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
+            <Clans onClose={() => setActiveSection('home')} isMobileFullPage />
+          </div>
+        )}
         {activeSection === 'feed' && (
           <div className="pt-16 pb-20 h-screen overflow-y-auto bg-background mobile-full-page-content">
             <ActivityFeed onClose={() => setActiveSection('home')} isMobileFullPage />
@@ -252,6 +259,7 @@ const Index = () => {
         onShowProfile={() => setActiveSection('profile')}
         onShowNotifications={() => setActiveSection('notifications')}
         onShowRanking={() => setActiveSection('leagues')}
+        onShowClans={() => setActiveSection('clans')}
       />
 
       {activeSection === 'home' && !showSummary && !showHistory && (
@@ -299,6 +307,7 @@ const Index = () => {
         {activeSection === 'challenges' && <Challenges onClose={() => setActiveSection('home')} />}
         {activeSection === 'feed' && <ActivityFeed onClose={() => setActiveSection('home')} />}
         {activeSection === 'notifications' && <Notifications onClose={() => setActiveSection('home')} />}
+        {activeSection === 'clans' && <Clans onClose={() => setActiveSection('home')} />}
       </div>
       
       {showImport && (

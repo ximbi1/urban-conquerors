@@ -191,6 +191,25 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
         });
       }
 
+      if (resultData?.missionsCompleted?.length) {
+        const rewardParts: string[] = [];
+        if (resultData.missionRewards?.points) {
+          rewardParts.push(`+${resultData.missionRewards.points} pts`);
+        }
+        if (resultData.missionRewards?.shields) {
+          rewardParts.push(`+${resultData.missionRewards.shields} escudo`);
+        }
+        toast.success('✅ Misión completada', {
+          description: `${resultData.missionsCompleted.join(', ')}${rewardParts.length ? ' · ' + rewardParts.join(' · ') : ''}`,
+        });
+      }
+
+      if (resultData?.clanMissionsCompleted?.length) {
+        toast.success('🤝 ¡Tu clan completó una misión!', {
+          description: resultData.clanMissionsCompleted.join(', '),
+        });
+      }
+
       if (resultData?.action === 'stolen') {
         toast.success('🔥 ¡Territorio robado desde importación!', {
           description: 'Has conquistado un territorio enemigo con tu archivo GPS',

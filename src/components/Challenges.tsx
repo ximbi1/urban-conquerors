@@ -3,6 +3,7 @@ import { X, Trophy, Target, CheckCircle2, Clock, Award, Trees, Droplets, Map } f
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ interface Challenge {
     current_progress: number;
     completed: boolean;
   };
+  isUpcoming?: boolean;
 }
 
 interface Mission {
@@ -63,12 +65,14 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
 
     setLoading(true);
 
+    const nowIso = new Date().toISOString();
+
     // Cargar desafíos activos
     const { data: challengesData, error: challengesError } = await supabase
       .from('challenges')
       .select('*')
-      .lte('start_date', new Date().toISOString())
-      .gte('end_date', new Date().toISOString())
+      .lte('start_date', nowIso)
+      .gte('end_date', nowIso)
       .order('start_date', { ascending: true });
 
     if (challengesError) {
@@ -76,6 +80,17 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
       toast.error('Error cargando desafíos');
       setLoading(false);
       return;
+    }
+
+    const { data: upcomingData, error: upcomingError } = await supabase
+      .from('challenges')
+      .select('*')
+      .gt('start_date', nowIso)
+      .order('start_date', { ascending: true })
+      .limit(4);
+
+    if (upcomingError) {
+      console.error('Error cargando desafíos próximos:', upcomingError);
     }
 
     // Cargar participaciones del usuario
@@ -150,7 +165,13 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
       };
     });
 
-    setChallenges(challengesWithProgress);
+    const upcomingChallenges: Challenge[] = (upcomingData || []).map((challenge) => ({
+      ...challenge,
+      type: challenge.type as 'distance' | 'territories' | 'points',
+      isUpcoming: true,
+    }));
+
+    setChallenges([...challengesWithProgress, ...upcomingChallenges]);
     setLoading(false);
   };
 
@@ -319,6 +340,95 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
     return days;
   };
 
+  const renderChallengeCard = (challenge: Challenge, variant: 'mobile' | 'desktop') => {
+    const isUpcoming = Boolean(challenge.isUpcoming);
+    const daysRemaining = getDaysRemaining(challenge.end_date);
+    const isExpired = !isUpcoming && daysRemaining < 0;
+    const startInDays = Math.max(
+      Math.ceil((new Date(challenge.start_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      0
+    );
+    const progress = !isUpcoming && challenge.participation
+      ? Math.min((challenge.participation.current_progress / challenge.target_value) * 100, 100)
+      : 0;
+    const isCompleted = !isUpcoming && (challenge.participation?.completed || false);
+    const timelineLabel = isUpcoming
+      ? `Comienza en ${startInDays} día${startInDays === 1 ? '' : 's'}`
+      : daysRemaining > 0
+      ? `${daysRemaining} día${daysRemaining === 1 ? '' : 's'} restantes`
+      : 'Último día';
+    const showJoinButton = !isUpcoming && !challenge.participation && !isExpired;
+
+    const baseClasses = variant === 'mobile' ? 'p-4 md:p-5' : 'p-4 md:p-5';
+    const stateClasses = isUpcoming
+      ? 'border-dashed border-primary/40 bg-card'
+      : isCompleted
+      ? 'border-success/60 bg-success/5'
+      : isExpired
+      ? 'border-muted/40 opacity-70'
+      : 'border-primary/30 hover:border-primary/50';
+
+    return (
+      <Card key={challenge.id} className={`${baseClasses} border-2 transition-all ${stateClasses}`}>
+        <div className="flex items-start gap-4">
+          <div className="text-3xl md:text-4xl">{challenge.icon}</div>
+          <div className="flex-1 space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-lg md:text-xl font-display font-bold flex items-center gap-2">
+                {challenge.name}
+                {isCompleted && <CheckCircle2 className="w-5 h-5 text-success" />}
+              </h3>
+              {isUpcoming && <Badge variant="outline">Próximo</Badge>}
+              {!isUpcoming && challenge.participation && (
+                <Badge variant="secondary">Participando</Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">{challenge.description}</p>
+
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Clock className="w-4 h-4" />
+                <span>{timelineLabel}</span>
+              </div>
+              <div className="flex items-center gap-1 text-primary font-semibold">
+                <Award className="w-4 h-4" />
+                <span>+{challenge.reward_points} pts</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{getTypeLabel(challenge.type)}:</span>
+                <span className="font-semibold">
+                  {formatValue(challenge.type, isUpcoming ? 0 : challenge.participation?.current_progress || 0)} /{' '}
+                  {formatValue(challenge.type, challenge.target_value)}
+                </span>
+              </div>
+              <Progress value={progress} className="h-2" />
+            </div>
+
+            {showJoinButton ? (
+              <Button
+                onClick={() => joinChallenge(challenge.id)}
+                variant="secondary"
+                size="sm"
+                className="w-full md:w-auto"
+              >
+                Unirse al desafío
+              </Button>
+            ) : (
+              isUpcoming && (
+                <Button disabled variant="outline" size="sm" className="w-full md:w-auto">
+                  Disponible pronto
+                </Button>
+              )
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  };
+
   if (isMobileFullPage) {
     return (
       <div className="w-full h-full overflow-y-auto">
@@ -358,79 +468,7 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
             </Card>
           ) : (
             <div className="space-y-4">
-              {challenges.map((challenge) => {
-                const daysRemaining = getDaysRemaining(challenge.end_date);
-                const isExpired = daysRemaining < 0;
-                const progress = challenge.participation
-                  ? (challenge.participation.current_progress / challenge.target_value) * 100
-                  : 0;
-                const isCompleted = challenge.participation?.completed || false;
-
-                return (
-                  <Card
-                    key={challenge.id}
-                    className={`p-4 md:p-5 border-2 transition-all ${
-                      isCompleted
-                        ? 'border-success/50 bg-success/5'
-                        : isExpired
-                        ? 'border-muted/50 opacity-60'
-                        : 'border-primary/30 hover:border-primary/50'
-                    }`}
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="text-3xl md:text-4xl">{challenge.icon}</div>
-                      <div className="flex-1 space-y-3">
-                        <div>
-                          <h3 className="text-lg md:text-xl font-display font-bold flex items-center gap-2">
-                            {challenge.name}
-                            {isCompleted && (
-                              <CheckCircle2 className="w-5 h-5 text-success" />
-                            )}
-                          </h3>
-                          <p className="text-sm text-muted-foreground">{challenge.description}</p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 text-sm">
-                          <div className="flex items-center gap-1 text-muted-foreground">
-                            <Clock className="w-4 h-4" />
-                            <span>
-                              {isExpired
-                                ? 'Expirado'
-                                : `${daysRemaining} día${daysRemaining !== 1 ? 's' : ''} restantes`}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 text-primary font-semibold">
-                            <Trophy className="w-4 h-4" />
-                            <span>+{challenge.reward_points} pts</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">{getTypeLabel(challenge.type)}:</span>
-                            <span className="font-semibold">
-                              {formatValue(challenge.type, challenge.participation?.current_progress || 0)} /{' '}
-                              {formatValue(challenge.type, challenge.target_value)}
-                            </span>
-                          </div>
-                          <Progress value={progress} className="h-2" />
-                        </div>
-
-                        {!challenge.participation && !isExpired && (
-                          <Button
-                            onClick={() => joinChallenge(challenge.id)}
-                            variant="secondary"
-                            size="sm"
-                            className="w-full md:w-auto"
-                          >
-                            Unirse al desafío
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
+              {challenges.map((challenge) => renderChallengeCard(challenge, 'mobile'))}
             </div>
           )}
         </div>
@@ -476,107 +514,7 @@ const Challenges = ({ onClose, isMobileFullPage = false }: ChallengesProps) => {
           </div>
         ) : (
           <div className="space-y-4">
-            {challenges.map((challenge) => {
-              const daysRemaining = getDaysRemaining(challenge.end_date);
-              const progress = challenge.participation
-                ? (challenge.participation.current_progress / challenge.target_value) * 100
-                : 0;
-              const isCompleted = challenge.participation?.completed || false;
-              const isJoined = !!challenge.participation;
-
-              return (
-                <Card
-                  key={challenge.id}
-                  className={`p-4 border-2 transition-all ${
-                    isCompleted
-                      ? 'border-success bg-success/5'
-                      : isJoined
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border bg-muted/30'
-                  }`}
-                >
-                  <div className="space-y-3">
-                    {/* Header del desafío */}
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        <div className="text-3xl">{challenge.icon}</div>
-                        <div>
-                          <h3 className="font-display font-bold text-lg flex items-center gap-2">
-                            {challenge.name}
-                            {isCompleted && (
-                              <CheckCircle2 className="w-5 h-5 text-success" />
-                            )}
-                          </h3>
-                          <p className="text-sm text-muted-foreground">
-                            {challenge.description}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Información del desafío */}
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <Clock className="w-4 h-4" />
-                        <span>
-                          {daysRemaining > 0
-                            ? `${daysRemaining} días restantes`
-                            : 'Último día'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 text-primary font-semibold">
-                        <Award className="w-4 h-4" />
-                        <span>+{challenge.reward_points} pts</span>
-                      </div>
-                    </div>
-
-                    {/* Objetivo */}
-                    <div className="flex items-center justify-between text-sm p-2 bg-background/50 rounded">
-                      <span className="text-muted-foreground">
-                        {getTypeLabel(challenge.type)}:
-                      </span>
-                      <span className="font-bold">
-                        {formatValue(challenge.type, challenge.target_value)}
-                      </span>
-                    </div>
-
-                    {/* Progreso */}
-                    {isJoined && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Progreso</span>
-                          <span className="font-semibold">
-                            {formatValue(
-                              challenge.type,
-                              challenge.participation?.current_progress || 0
-                            )}{' '}
-                            / {formatValue(challenge.type, challenge.target_value)}
-                          </span>
-                        </div>
-                        <Progress value={Math.min(progress, 100)} className="h-2" />
-                        {isCompleted && (
-                          <p className="text-sm text-success font-semibold flex items-center gap-1">
-                            <Trophy className="w-4 h-4" />
-                            ¡Desafío completado!
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Botón de acción */}
-                    {!isJoined && !isCompleted && (
-                      <Button
-                        onClick={() => joinChallenge(challenge.id)}
-                        className="w-full"
-                        variant="default"
-                      >
-                        Unirse al desafío
-                      </Button>
-                    )}
-                  </div>
-                </Card>
-              );
-            })}
+            {challenges.map((challenge) => renderChallengeCard(challenge, 'desktop'))}
           </div>
         )}
       </Card>

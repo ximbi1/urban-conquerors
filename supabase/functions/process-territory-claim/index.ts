@@ -11,6 +11,13 @@ const PROTECTION_DURATION_MS = 24 * 60 * 60 * 1000
 const STEAL_COOLDOWN_MS = 6 * 60 * 60 * 1000
 const MINIMUM_AREA_M2 = 50
 const OVERLAP_THRESHOLD = 0.8
+const CLAN_MISSION_LABELS: Record<string, string> = {
+  park: 'Ruta de parques',
+  fountain: 'Ruta de hidratación',
+  district: 'Distritos dominados',
+  territories: 'Territorios coordinados',
+  points: 'Influencia acumulada',
+}
 const LEVEL_THRESHOLDS = [
   0,
   100,
@@ -399,6 +406,147 @@ const updateMissionProgress = async (
   return result
 }
 
+const updateClanCollaboration = async (
+  params: {
+    userId: string
+    userName: string
+    poiTags: { type: string; name: string }[] | null
+    territoriesConquered: number
+    territoriesStolen: number
+    territoriesLost: number
+    pointsGained: number
+  }
+) => {
+  const { data: memberships, error } = await supabaseAdmin
+    .from('clan_members')
+    .select('id, clan_id, contribution_points, clan:clans(total_points, territories_controlled)')
+    .eq('user_id', params.userId)
+
+  if (error) {
+    console.error('Error loading clan memberships:', error)
+    return { completed: [] as string[] }
+  }
+
+  if (!memberships?.length) {
+    return { completed: [] as string[] }
+  }
+
+  const poiTypes = new Set((params.poiTags || []).map((tag) => tag.type))
+  const completedNames: string[] = []
+
+  for (const membership of memberships) {
+    const basePoints = Math.max(params.pointsGained, 0)
+    const territoriesDelta = params.territoriesConquered + params.territoriesStolen - params.territoriesLost
+    let missionBonus = 0
+
+    const { data: clanMissions, error: missionsError } = await supabaseAdmin
+      .from('clan_missions')
+      .select('*')
+      .eq('clan_id', membership.clan_id)
+      .eq('active', true)
+
+    if (missionsError) {
+      console.error('Error loading clan missions:', missionsError)
+    }
+
+    if (clanMissions?.length) {
+      for (const mission of clanMissions) {
+        let delta = 0
+        switch (mission.mission_type) {
+          case 'park':
+          case 'fountain':
+          case 'district':
+            delta = poiTypes.has(mission.mission_type) ? 1 : 0
+            break
+          case 'territories':
+            delta = params.territoriesConquered + params.territoriesStolen
+            break
+          case 'points':
+            delta = Math.round(basePoints)
+            break
+          default:
+            break
+        }
+
+        if (!delta) continue
+
+        const newProgress = Math.min((mission.current_progress || 0) + delta, mission.target_count)
+        const missionCompleted = newProgress >= mission.target_count
+
+        await supabaseAdmin
+          .from('clan_missions')
+          .update({
+            current_progress: newProgress,
+            active: missionCompleted ? false : mission.active,
+          })
+          .eq('id', mission.id)
+
+        if (missionCompleted) {
+          const label = CLAN_MISSION_LABELS[mission.mission_type] || 'Misión del clan'
+          completedNames.push(label)
+          missionBonus += mission.reward_points || 0
+
+          await supabaseAdmin
+            .from('clan_feed')
+            .insert({
+              clan_id: membership.clan_id,
+              user_id: params.userId,
+              event_type: 'mission_completed',
+              payload: {
+                missionName: label,
+                rewardPoints: mission.reward_points || 0,
+                rewardShields: mission.reward_shields || 0,
+              },
+            })
+        } else {
+          await supabaseAdmin
+            .from('clan_feed')
+            .insert({
+              clan_id: membership.clan_id,
+              user_id: params.userId,
+              event_type: 'territory_help',
+              payload: {
+                territoryName: CLAN_MISSION_LABELS[mission.mission_type] || 'Territorio aliado',
+              },
+            })
+        }
+      }
+    }
+
+    await supabaseAdmin
+      .from('clan_members')
+      .update({
+        contribution_points: (membership.contribution_points || 0) + basePoints + missionBonus,
+      })
+      .eq('id', membership.id)
+
+    const clanPoints = (membership.clan?.total_points || 0) + basePoints + missionBonus
+    const clanTerritories = Math.max((membership.clan?.territories_controlled || 0) + territoriesDelta, 0)
+
+    await supabaseAdmin
+      .from('clans')
+      .update({
+        total_points: clanPoints,
+        territories_controlled: clanTerritories,
+      })
+      .eq('id', membership.clan_id)
+
+    await supabaseAdmin
+      .from('clan_feed')
+      .insert({
+        clan_id: membership.clan_id,
+        user_id: params.userId,
+        event_type: 'run_contribution',
+        payload: {
+          points: basePoints,
+          territories: params.territoriesConquered + params.territoriesStolen,
+        },
+      })
+  }
+
+  return { completed: completedNames }
+}
+
 const fetchActiveShield = async (territoryId: string) => {
   const { data } = await supabaseAdmin
     .from('territory_shields')
@@ -585,6 +733,7 @@ Deno.serve(async (req) => {
     let poiTags: { type: string; name: string }[] = []
     let challengeRewards: string[] = []
     let missionsCompleted: string[] = []
+    let clanMissionsCompleted: string[] = []
     let missionRewardPoints = 0
     let missionRewardShields = 0
 
@@ -853,6 +1002,19 @@ Deno.serve(async (req) => {
       if (missionResult.completed.length) {
         missionsCompleted = [...missionsCompleted, ...missionResult.completed]
       }
+
+      const clanResult = await updateClanCollaboration({
+        userId: user.id,
+        userName: attackerName,
+        poiTags,
+        territoriesConquered: territoriesConquered,
+        territoriesStolen: territoriesStolen,
+        territoriesLost: territoriesLost,
+        pointsGained,
+      })
+      if (clanResult.completed.length) {
+        clanMissionsCompleted = [...clanMissionsCompleted, ...clanResult.completed]
+      }
     }
 
     const { data: run } = await supabaseAdmin
@@ -909,6 +1071,7 @@ Deno.serve(async (req) => {
             points: missionRewardPoints,
             shields: missionRewardShields,
           },
+          clanMissionsCompleted,
         },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

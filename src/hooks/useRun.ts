@@ -336,6 +336,12 @@ export const useRun = () => {
           });
         }
 
+        if (resultData?.clanMissionsCompleted?.length) {
+          toast.success('🤝 ¡Tu clan completó una misión!', {
+            description: resultData.clanMissionsCompleted.join(', '),
+          });
+        }
+
         if (resultData?.action === 'stolen') {
           toast.success('🔥 ¡Territorio robado!', {
             description: 'Has conquistado un territorio enemigo',
