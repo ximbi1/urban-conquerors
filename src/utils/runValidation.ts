@@ -131,6 +131,24 @@ export const smoothPath = (
   return smoothed;
 };
 
+export const limitPathPoints = (
+  points: Coordinate[],
+  maxPoints: number = 400
+): Coordinate[] => {
+  if (points.length <= maxPoints) return points;
+  if (maxPoints < 3) return [points[0], points[points.length - 1]];
+
+  const limited: Coordinate[] = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+
+  for (let i = 0; i < maxPoints; i++) {
+    const index = Math.round(i * step);
+    limited.push(points[Math.min(index, points.length - 1)]);
+  }
+
+  return limited;
+};
+
 // Validar patrón de ruta (detectar trazados sospechosos)
 export const validateRoutePattern = (
   path: Coordinate[]

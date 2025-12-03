@@ -10,6 +10,7 @@ import {
   filterGPSPointsByAccuracy,
   smoothPath,
   validateRun,
+  limitPathPoints,
   GPSPoint,
 } from '@/utils/runValidation';
 import { calculateLevel } from '@/utils/levelSystem';
@@ -222,12 +223,12 @@ export const useRun = () => {
     let runIdentifier: string | null = null;
 
     // Suavizar ruta antes de procesar
-    const smoothedPath = smoothPath(runPath);
-    const smoothedDistance = calculatePathDistance(smoothedPath);
+    const normalizedPath = limitPathPoints(smoothPath(runPath), 400);
+    const smoothedDistance = calculatePathDistance(normalizedPath);
 
     // Verificar si se cerró un polígono
-    if (smoothedPath.length >= 4 && isPolygonClosed(smoothedPath)) {
-      const area = calculatePolygonArea(smoothedPath);
+    if (normalizedPath.length >= 4 && isPolygonClosed(normalizedPath)) {
+      const area = calculatePolygonArea(normalizedPath);
       const avgPace = calculateAveragePace(smoothedDistance, duration);
 
       // Obtener nivel del usuario
@@ -240,7 +241,7 @@ export const useRun = () => {
       const userLevel = userProfile ? calculateLevel(userProfile.total_points).level : 1;
 
       // VALIDAR LA CARRERA COMPLETA
-      const validation = validateRun(smoothedPath, duration, area, userLevel);
+      const validation = validateRun(normalizedPath, duration, area, userLevel);
       
       if (!validation.isValid) {
         toast.error('Carrera no válida', {
@@ -255,7 +256,7 @@ export const useRun = () => {
       try {
         const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
           body: {
-            path: smoothedPath,
+            path: normalizedPath,
             duration,
             source: useGPS ? 'live' : 'manual',
           },
@@ -426,7 +427,7 @@ export const useRun = () => {
       run: {
         id: runIdentifier ?? `run-${Date.now()}`,
         userId: user.id,
-        path: smoothedPath,
+        path: normalizedPath,
         distance: smoothedDistance,
         duration,
         avgPace: calculateAveragePace(smoothedDistance, duration),

@@ -24,6 +24,7 @@ export interface Territory {
   conquestPoints?: number;
   tags?: Array<{ type: string; name: string }>;
   poiSummary?: string | null;
+  shieldExpires?: string | null;
 }
 
 export interface Run {

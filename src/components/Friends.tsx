@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
-import { X, UserPlus, Check, XIcon, Users, Search } from 'lucide-react';
+import { X, UserPlus, Check, XIcon, Users, Search, Swords, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
+import { Duel, DuelType } from '@/types/territory';
 
 interface FriendsProps {
   onClose: () => void;
@@ -38,11 +40,25 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [duels, setDuels] = useState<Duel[]>([]);
+  const [duelsLoading, setDuelsLoading] = useState(false);
+  const [creatingDuel, setCreatingDuel] = useState(false);
+  const [showDuelForm, setShowDuelForm] = useState(false);
+  const [duelFriend, setDuelFriend] = useState('');
+  const [currentDuelType, setCurrentDuelType] = useState<DuelType>('distance');
+  const [duelTarget, setDuelTarget] = useState('20000');
+  const duelTypeLabels: Record<DuelType, string> = {
+    distance: 'Distancia',
+    points: 'Puntos',
+    territories: 'Territorios',
+    arena: 'Arena',
+  };
 
   const { containerRef, isRefreshing, pullDistance, progress } = usePullToRefresh({
     onRefresh: async () => {
       await loadFriends();
       await loadPendingRequests();
+      await loadDuels();
     },
     enabled: isMobileFullPage,
   });
@@ -51,6 +67,7 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
     if (user) {
       loadFriends();
       loadPendingRequests();
+      loadDuels();
     }
   }, [user]);
 
@@ -92,6 +109,25 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
     }
 
     setPendingRequests((data || []).map(f => ({ ...f, status: f.status as 'pending' | 'accepted' | 'rejected' })));
+  };
+
+  const loadDuels = async () => {
+    if (!user) return;
+    setDuelsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('duels')
+        .select('*')
+        .or(`challenger_id.eq.${user.id},opponent_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setDuels((data || []) as Duel[]);
+    } catch (error) {
+      console.error('Error cargando duelos:', error);
+      toast.error('No se pudieron cargar los duelos');
+    } finally {
+      setDuelsLoading(false);
+    }
   };
 
   const searchUsers = async () => {
@@ -237,6 +273,140 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
     }
   };
 
+  const friendOptions = friends.map((friendship) => ({
+    id: friendship.friend_id,
+    username: friendship.friend_profile?.username || 'Amigo',
+  }));
+  const friendNameMap = new Map(friendOptions.map(option => [option.id, option.username]));
+
+  const renderDuelsSection = () => (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <Swords className="w-4 h-4 text-primary" />
+          Duelos activos
+        </div>
+        {friendOptions.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowDuelForm(prev => !prev)}
+          >
+            {showDuelForm ? 'Cerrar' : 'Crear duelo'}
+          </Button>
+        )}
+      </div>
+      {friendOptions.length === 0 && (
+        <p className="text-xs text-muted-foreground">Añade amigos para desbloquear los duelos 1v1.</p>
+      )}
+      {showDuelForm && friendOptions.length > 0 && (
+        <Card className="p-3 space-y-3 bg-muted/30 border-border">
+          <Select value={duelFriend} onValueChange={setDuelFriend}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecciona un amigo" />
+            </SelectTrigger>
+            <SelectContent>
+              {friendOptions.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.username}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select value={currentDuelType} onValueChange={(val) => setCurrentDuelType(val as DuelType)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Tipo de duelo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="distance">Distancia</SelectItem>
+                <SelectItem value="points">Puntos</SelectItem>
+                <SelectItem value="arena">Arena</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={duelTarget}
+              onChange={(e) => setDuelTarget(e.target.value)}
+              placeholder="Meta (ej. 20000)"
+              inputMode="numeric"
+            />
+          </div>
+          <Button onClick={createDuel} disabled={creatingDuel || !duelFriend}>
+            {creatingDuel && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            Lanzar reto
+          </Button>
+        </Card>
+      )}
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+        {duelsLoading ? (
+          <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            Cargando duelos...
+          </div>
+        ) : duels.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Todavía no tienes duelos activos.</p>
+        ) : (
+          duels.map((duel) => {
+            const challenger = duel.challenger_id === user?.id ? 'Tú' : (friendNameMap.get(duel.challenger_id) || 'Rival');
+            const opponent = duel.opponent_id === user?.id ? 'Tú' : (friendNameMap.get(duel.opponent_id) || 'Rival');
+            const statusColor = duel.status === 'completed'
+              ? 'text-emerald-400'
+              : duel.status === 'pending'
+                ? 'text-amber-400'
+                : 'text-primary';
+            return (
+              <Card key={duel.id} className="p-3 bg-muted/30 border-border">
+                <div className="flex items-center justify-between text-sm font-semibold">
+                  <span>{duelTypeLabels[duel.duel_type] || duel.duel_type} · meta {duel.target_value}</span>
+                  <span className={`text-xs ${statusColor}`}>{duel.status}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {challenger} {duel.challenger_progress} vs {opponent} {duel.opponent_progress}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Termina: {new Date(duel.end_at).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </Card>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+
+  const createDuel = async () => {
+    if (!user) return;
+    if (!duelFriend) {
+      toast.error('Selecciona un amigo para retar');
+      return;
+    }
+    setCreatingDuel(true);
+    try {
+      const payload = {
+        challenger_id: user.id,
+        opponent_id: duelFriend,
+        duel_type: currentDuelType,
+        target_value: parseInt(duelTarget, 10) || 20000,
+        status: 'active',
+        start_at: new Date().toISOString(),
+        end_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      };
+      const { error } = await supabase.from('duels').insert(payload);
+      if (error) throw error;
+      toast.success('Duelo lanzado');
+      setDuelFriend('');
+      setDuelTarget('20000');
+      setCurrentDuelType('distance');
+      setShowDuelForm(false);
+      loadDuels();
+    } catch (error) {
+      console.error('Error creando duelo:', error);
+      toast.error('No se pudo crear el duelo');
+    } finally {
+      setCreatingDuel(false);
+    }
+  };
+
   if (isMobileFullPage) {
     // Mobile full page version without overlay
     return (
@@ -349,6 +519,8 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
               </div>
             </div>
           )}
+
+          {renderDuelsSection()}
 
           {/* Lista de amigos */}
           <div className="space-y-3">
@@ -519,6 +691,8 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
             </div>
           </div>
         )}
+
+        {renderDuelsSection()}
 
         {/* Lista de amigos */}
         <div className="space-y-3">

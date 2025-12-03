@@ -7,7 +7,7 @@ import { parseGPX, parseTCX, detectFileType, gpsPointsToCoordinates, ParsedActiv
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { calculatePolygonArea, isPolygonClosed, calculateAveragePace, calculatePathDistance } from '@/utils/geoCalculations';
-import { validateRun } from '@/utils/runValidation';
+import { validateRun, limitPathPoints, smoothPath } from '@/utils/runValidation';
 import { Coordinate } from '@/types/territory';
 import { calculateLevel } from '@/utils/levelSystem';
 
@@ -90,11 +90,12 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
         throw new Error('Solo se pueden importar carreras de la semana actual (lunes a domingo)');
       }
 
-      // Convertir a coordenadas
+      // Convertir a coordenadas y limitar cantidad de puntos para no saturar la función edge
       const path = gpsPointsToCoordinates(parsedData.points);
+      const normalizedPath = limitPathPoints(smoothPath(path), 400);
       
       // Verificar duplicados
-      const runHash = generateRunHash(path, parsedData.startTime);
+      const runHash = generateRunHash(normalizedPath, parsedData.startTime);
       const { data: existingRuns } = await supabase
         .from('runs')
         .select('id, created_at, path')
@@ -104,7 +105,8 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
         for (const run of existingRuns) {
           const runPath = run.path as any as Coordinate[];
           const runDate = new Date(run.created_at);
-          const existingHash = generateRunHash(runPath, runDate);
+          const normalizedStoredPath = limitPathPoints(smoothPath(runPath), 400);
+          const existingHash = generateRunHash(normalizedStoredPath, runDate);
           
           if (existingHash === runHash) {
             throw new Error('Esta carrera ya ha sido importada anteriormente');
@@ -125,15 +127,15 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
 
       const userLevel = calculateLevel(profile.total_points).level;
 
-      if (!isPolygonClosed(path, 100)) {
+      if (!isPolygonClosed(normalizedPath, 100)) {
         throw new Error('La ruta no forma un polígono cerrado. Asegúrate de que el inicio y el final estén cerca (máx. 100m)');
       }
 
-      const distanceMeters = calculatePathDistance(path);
-      const area = calculatePolygonArea(path);
+      const distanceMeters = calculatePathDistance(normalizedPath);
+      const area = calculatePolygonArea(normalizedPath);
       const avgPace = calculateAveragePace(distanceMeters, parsedData.duration);
 
-      const validation = validateRun(path, parsedData.duration, area, userLevel);
+      const validation = validateRun(normalizedPath, parsedData.duration, area, userLevel);
 
       if (!validation.isValid) {
         throw new Error(`Carrera no válida: ${validation.errors.join(', ')}`);
@@ -141,7 +143,7 @@ export const ImportRun = ({ onImportComplete }: ImportRunProps) => {
 
       const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
         body: {
-          path,
+          path: normalizedPath,
           duration: parsedData.duration,
           source: 'import',
         },

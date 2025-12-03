@@ -8,9 +8,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { Locate, Users, User, Globe, X, SlidersHorizontal, ShieldPlus, Swords } from 'lucide-react';
-import { DefenseCenterModal } from './DefenseCenterModal';
-import { DuelModal } from './DuelModal';
+import { Locate, Users, User, Globe, X, SlidersHorizontal } from 'lucide-react';
 
 interface MapViewProps {
   runPath: Coordinate[];
@@ -42,8 +40,6 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showChallenges, setShowChallenges] = useState(true);
   const [showPois, setShowPois] = useState(false);
-  const [showDefenseCenter, setShowDefenseCenter] = useState(false);
-  const [showDuelModal, setShowDuelModal] = useState(false);
   const { user } = useAuth();
 
   // Cargar token de Mapbox desde edge function
@@ -202,7 +198,8 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         .from('territories')
         .select(`
           *,
-          profiles:user_id (username, color)
+          profiles:user_id (username, color),
+          shields:territory_shields(expires_at)
         `)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -232,6 +229,9 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           lastAttackerId: t.last_attacker_id,
           lastAttackAt: t.last_attack_at,
           conquestPoints: t.conquest_points,
+          tags: t.tags || [],
+          poiSummary: t.poi_summary || null,
+          shieldExpires: t.shields?.length ? t.shields[0].expires_at : null,
         }));
         setTerritories(formattedTerritories);
       }
@@ -343,6 +343,26 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   }, []);
 
   useEffect(() => {
+    if (!map.current) return;
+    const handlers = [
+      map.current.scrollZoom,
+      map.current.boxZoom,
+      map.current.dragPan,
+      map.current.keyboard,
+      map.current.doubleClickZoom,
+      map.current.touchZoomRotate,
+    ];
+    handlers.forEach((handler) => {
+      if (!handler) return;
+      if (selectedChallenge) {
+        handler.disable();
+      } else {
+        handler.enable();
+      }
+    });
+  }, [selectedChallenge]);
+
+  useEffect(() => {
     const loadChallenges = async () => {
       const { data, error } = await supabase
         .from('map_challenges')
@@ -400,6 +420,15 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     if (map.current.getLayer('territories-outline')) {
       map.current.removeLayer('territories-outline');
     }
+    if (map.current.getLayer('territories-shield-glow')) {
+      map.current.removeLayer('territories-shield-glow');
+    }
+    if (map.current.getLayer('territories-shield-outline')) {
+      map.current.removeLayer('territories-shield-outline');
+    }
+    if (map.current.getLayer('territories-shield-label')) {
+      map.current.removeLayer('territories-shield-label');
+    }
     if (map.current.getSource('territories')) {
       map.current.removeSource('territories');
     }
@@ -417,6 +446,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         const isOwn = user?.id === territory.userId;
         const protectedUntil = territory.protectedUntil ? new Date(territory.protectedUntil) : null;
         const cooldownUntil = territory.cooldownUntil ? new Date(territory.cooldownUntil) : null;
+        const shieldUntil = territory.shieldExpires ? new Date(territory.shieldExpires) : null;
         const now = new Date();
         const protectionRemaining = protectedUntil && protectedUntil > now
           ? Math.max(0, protectedUntil.getTime() - now.getTime())
@@ -424,6 +454,13 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         const cooldownRemaining = cooldownUntil && cooldownUntil > now
           ? Math.max(0, cooldownUntil.getTime() - now.getTime())
           : null;
+        const shieldRemaining = shieldUntil && shieldUntil > now
+          ? Math.max(0, shieldUntil.getTime() - now.getTime())
+          : null;
+        const shieldLabel = shieldRemaining
+          ? `Escudo ${formatDuration(shieldRemaining)}`
+          : null;
+        const status = shieldRemaining ? 'protected' : (territory.status || 'idle');
 
         return {
           type: 'Feature' as const,
@@ -440,7 +477,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             }),
             isFriend: isFriend && !isOwn,
             isOwn,
-            status: territory.status || 'idle',
+            status,
             protectedLabel: protectionRemaining
               ? `Protegido ${formatDuration(protectionRemaining)}`
               : null,
@@ -448,6 +485,8 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
               ? `Cooldown ${formatDuration(cooldownRemaining)}`
               : null,
             poiSummary: territory.poiSummary || null,
+            hasShield: Boolean(shieldRemaining),
+            shieldLabel,
           },
           geometry: {
             type: 'Polygon' as const,
@@ -496,6 +535,48 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         },
       });
 
+      map.current.addLayer({
+        id: 'territories-shield-glow',
+        type: 'line',
+        source: 'territories',
+        filter: ['==', ['get', 'hasShield'], true],
+        paint: {
+          'line-color': '#facc15',
+          'line-width': 8,
+          'line-opacity': 0.35,
+          'line-blur': 2,
+        },
+      });
+
+      map.current.addLayer({
+        id: 'territories-shield-outline',
+        type: 'line',
+        source: 'territories',
+        filter: ['==', ['get', 'hasShield'], true],
+        paint: {
+          'line-color': '#facc15',
+          'line-width': 3,
+        },
+      });
+
+      map.current.addLayer({
+        id: 'territories-shield-label',
+        type: 'symbol',
+        source: 'territories',
+        filter: ['==', ['get', 'hasShield'], true],
+        layout: {
+          'text-field': ['get', 'shieldLabel'],
+          'text-size': 12,
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-offset': [0, 1.2],
+        },
+        paint: {
+          'text-color': '#facc15',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.5,
+        },
+      });
+
       // Tooltips mejorados
       const popupHandler = (e: mapboxgl.MapMouseEvent) => {
         if (!e.features || !e.features[0]) return;
@@ -505,7 +586,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           : props.status === 'contested'
             ? `<span style="padding:2px 6px;border-radius:999px;background:#f973161a;color:#f97316;font-size:11px;">En disputa</span>`
             : '';
-        const timingInfo = [props.protectedLabel, props.cooldownLabel]
+        const timingInfo = [props.shieldLabel, props.protectedLabel, props.cooldownLabel]
           .filter(Boolean)
           .map((label: string) => `<div style=\"color:#94a3b8;\">${label}</div>`) // muted text
           .join('');
@@ -533,6 +614,12 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       };
 
       map.current.on('click', 'territories-fill', popupHandler);
+
+      return () => {
+        if (map.current) {
+          map.current.off('click', 'territories-fill', popupHandler);
+        }
+      };
     }
   }, [territories, friendIds, user, territoryFilter]);
 
@@ -779,12 +866,16 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     );
   }
 
+  const overlayActive = Boolean(selectedChallenge);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="absolute inset-0" />
       
       {/* Filtros */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
+      <div
+        className={`absolute top-4 left-4 z-20 flex flex-col gap-2 transition-opacity duration-200 ${overlayActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      >
         <Button
           variant="secondary"
           size="sm"
@@ -832,14 +923,6 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
                 <Switch checked={showPois} onCheckedChange={setShowPois} />
               </div>
             </div>
-            <div className="flex flex-col gap-2 pt-2">
-              <Button variant="secondary" size="sm" onClick={() => setShowDefenseCenter(true)}>
-                <ShieldPlus className="h-4 w-4 mr-2" /> Centro de defensa
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setShowDuelModal(true)}>
-                <Swords className="h-4 w-4 mr-2" /> Duelos
-              </Button>
-            </div>
           </Card>
         )}
       </div>
@@ -847,14 +930,14 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       {/* Botón de centrar ubicación */}
       <Button
         onClick={centerOnUser}
-        className="absolute bottom-24 right-4 z-10 rounded-full shadow-lg"
+        className={`absolute bottom-24 right-4 z-10 rounded-full shadow-lg transition-opacity duration-200 ${overlayActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         size="icon"
       >
         <Locate className="w-5 h-5" />
       </Button>
 
       {selectedChallenge && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-background/80 backdrop-blur">
           <Card className="w-full max-w-md bg-card border-glow p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -901,8 +984,6 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           </Card>
         </div>
       )}
-      {showDefenseCenter && <DefenseCenterModal onClose={() => setShowDefenseCenter(false)} />}
-      {showDuelModal && <DuelModal onClose={() => setShowDuelModal(false)} />}
     </div>
   );
 };
