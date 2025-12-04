@@ -62,11 +62,10 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
     const map = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/outdoors-v12',
-      bounds,
-      padding: 50,
       pitch: 45,
       bearing: -20,
     });
+    map.fitBounds(bounds, { padding: 50 });
     mapRef.current = map;
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-left');

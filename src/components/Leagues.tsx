@@ -400,7 +400,7 @@ const Leagues = ({ onClose, isMobileFullPage = false }: LeaguesProps) => {
             <span className="font-semibold">Tu liga: {getLeagueName(userLeague)}</span>
           </div>
           <div className="text-xs text-muted-foreground">
-            Shard activo: {playerSettings?.leagueShard || 'bronze-1'}
+            Shard activo: {userLeague}-1
           </div>
         </div>
 
