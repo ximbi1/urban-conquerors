@@ -461,18 +461,55 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
             pullDistance={pullDistance}
             progress={progress}
           />
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-display font-bold glow-primary">
+            Perfil
+          </h2>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setIsEditing(!isEditing)}
+          >
+            <Edit2 className="w-5 h-5" />
+          </Button>
+        </div>
+
+        <Card className="p-4 border border-border flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-display font-bold glow-primary">
-              Perfil
-            </h2>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => setIsEditing(!isEditing)}
-            >
-              <Edit2 className="w-5 h-5" />
-            </Button>
+            <div>
+              <p className="text-sm font-semibold">Modo explorador</p>
+              <p className="text-xs text-muted-foreground">Guarda rutas personales sin disputar territorios</p>
+            </div>
+            <Switch
+              checked={playerSettings.explorerMode}
+              onCheckedChange={async (checked) => {
+                try {
+                  await updateSettings({ explorerMode: checked });
+                  toast.success(checked ? 'Modo explorador activado' : 'Modo competitivo activado');
+                } catch (error) {
+                  toast.error('No se pudo actualizar el modo');
+                }
+              }}
+            />
           </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Liga social</p>
+              <p className="text-xs text-muted-foreground">Colabora con otros runners sin perder territorios</p>
+            </div>
+            <Switch
+              checked={playerSettings.socialLeague}
+              onCheckedChange={async (checked) => {
+                try {
+                  await updateSettings({ socialLeague: checked });
+                  toast.success(checked ? 'Liga social activada' : 'Liga social desactivada');
+                } catch (error) {
+                  toast.error('No se pudo actualizar la liga social');
+                }
+              }}
+            />
+          </div>
+        </Card>
 
         {/* Información del Usuario */}
         {!isEditing ? (
