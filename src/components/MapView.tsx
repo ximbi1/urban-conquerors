@@ -1184,24 +1184,14 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       <div ref={mapContainer} className="absolute inset-0" />
       
       {/* Indicación de modo */}
-      <div className="absolute top-4 right-4 z-20 space-y-2 text-right">
-        {playerSettings?.explorerMode ? (
+      {playerSettings?.explorerMode && (
+        <div className="absolute top-4 left-4 z-30 text-left">
           <Card className="px-4 py-2 bg-sky-500/10 text-sky-200 border border-sky-500/40 shadow-lg">
             <p className="text-xs uppercase tracking-widest">Modo Explorador</p>
             <p className="text-sm">Guardando recuerdos personales</p>
           </Card>
-        ) : playerSettings?.socialLeague ? (
-          <Card className="px-4 py-2 bg-emerald-500/10 text-emerald-200 border border-emerald-500/40 shadow-lg">
-            <p className="text-xs uppercase tracking-widest">Liga Social</p>
-            <p className="text-sm">Cooperando sin invasiones</p>
-          </Card>
-        ) : (
-          <Card className="px-4 py-2 bg-muted/70 text-foreground border border-border shadow-lg">
-            <p className="text-xs uppercase tracking-widest">Shard activo</p>
-            <p className="text-sm font-semibold">{playerSettings?.leagueShard || 'bronze-1'}</p>
-          </Card>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Filtros */}
       {!playerSettings?.explorerMode && (

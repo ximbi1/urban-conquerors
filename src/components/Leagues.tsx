@@ -394,9 +394,14 @@ const Leagues = ({ onClose, isMobileFullPage = false }: LeaguesProps) => {
         {currentSeason && <SeasonInfo season={currentSeason} />}
 
         {/* Liga actual del usuario */}
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/30 border border-border">
-          {getLeagueIcon(userLeague)}
-          <span className="font-semibold">Tu liga: {getLeagueName(userLeague)}</span>
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
+          <div className="flex items-center gap-2">
+            {getLeagueIcon(userLeague)}
+            <span className="font-semibold">Tu liga: {getLeagueName(userLeague)}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Shard activo: {playerSettings?.leagueShard || 'bronze-1'}
+          </div>
         </div>
 
         {/* Selector de modo */}
