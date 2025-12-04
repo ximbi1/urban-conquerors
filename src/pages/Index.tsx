@@ -127,7 +127,6 @@ const Index = () => {
       <Header
         onShowRanking={() => setShowLeagues(true)}
         onShowProfile={() => setActiveSection('profile')}
-        onShowTutorial={() => setShowTutorial(true)}
         onShowFriends={() => setActiveSection('friends')}
         onShowChallenges={() => setActiveSection('challenges')}
         onShowClans={() => setActiveSection('clans')}
@@ -251,7 +250,7 @@ const Index = () => {
       </div>
 
       <BottomNav
-        activeSection={activeSection}
+        activeSection={activeSection as 'home' | 'challenges' | 'friends' | 'feed' | 'leagues' | 'clans'}
         onShowHome={() => setActiveSection('home')}
         onShowChallenges={() => setActiveSection('challenges')}
         onShowFriends={() => setActiveSection('friends')}

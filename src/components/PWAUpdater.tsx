@@ -1,20 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { useRegisterSW } from 'virtual:pwa-register/react';
 
 const PWAUpdater = () => {
-  const {
-    needRefresh: [needRefresh, setNeedRefresh],
-    offlineReady: [offlineReady, setOfflineReady],
-    updateServiceWorker,
-  } = useRegisterSW({ immediate: true });
+  const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [needRefresh, setNeedRefresh] = useState(false);
+
+  const updateServiceWorker = useCallback(() => {
+    if (registration?.waiting) {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      window.location.reload();
+    }
+  }, [registration]);
 
   useEffect(() => {
-    if (offlineReady) {
-      toast.success('Aplicación lista para usarse offline');
-      setOfflineReady(false);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then((reg) => {
+        setRegistration(reg);
+        
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                setNeedRefresh(true);
+              }
+            });
+          }
+        });
+      });
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
+      });
     }
-  }, [offlineReady, setOfflineReady]);
+  }, []);
 
   useEffect(() => {
     if (needRefresh) {
@@ -22,13 +41,13 @@ const PWAUpdater = () => {
         action: {
           label: 'Actualizar',
           onClick: () => {
-            updateServiceWorker(true);
+            updateServiceWorker();
             setNeedRefresh(false);
           },
         },
       });
     }
-  }, [needRefresh, setNeedRefresh, updateServiceWorker]);
+  }, [needRefresh, updateServiceWorker]);
 
   return null;
 };

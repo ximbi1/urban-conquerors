@@ -235,7 +235,21 @@ export const useRun = () => {
             return;
           }
           if (position) {
-            handleGPSPosition(position);
+            const webPosition = {
+              coords: {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                altitude: position.coords.altitude,
+                altitudeAccuracy: position.coords.altitudeAccuracy,
+                heading: position.coords.heading,
+                speed: position.coords.speed,
+                toJSON() { return this; },
+              },
+              timestamp: position.timestamp,
+              toJSON() { return this; },
+            } as GeolocationPosition;
+            handleGPSPosition(webPosition);
           }
         })
           .then(id => setWatchId(id))
@@ -386,13 +400,13 @@ export const useRun = () => {
         if (playerSettings?.explorerMode) {
           await supabase
             .from('explorer_territories')
-            .insert({
+            .insert([{
               user_id: user.id,
-              path: normalizedPath,
+              path: normalizedPath as unknown as import('@/integrations/supabase/types').Json,
               distance: smoothedDistance,
               duration,
               metadata: { source: useGPS ? 'live' : 'manual' },
-            });
+            }]);
           toast.success('Ruta guardada en modo explorador');
           setIsSaving(false);
           setIsRunning(false);

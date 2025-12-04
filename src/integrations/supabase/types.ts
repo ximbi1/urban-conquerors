@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       achievements: {
@@ -1338,6 +1313,10 @@ export type Database = {
     Functions: {
       calculate_user_streak: { Args: { p_user_id: string }; Returns: number }
       is_member_of_clan: { Args: { check_clan: string }; Returns: boolean }
+      rebalance_league_shards: {
+        Args: { shard_size?: number }
+        Returns: undefined
+      }
     }
     Enums: {
       achievement_type: "distance" | "territories" | "streak"
@@ -1473,9 +1452,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       achievement_type: ["distance", "territories", "streak"],

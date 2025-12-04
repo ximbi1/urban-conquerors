@@ -417,11 +417,11 @@ const Friends = ({ onClose, isMobileFullPage = false, onViewUserProfile }: Frien
         opponent_id: duelFriend,
         duel_type: currentDuelType,
         target_value: parseInt(duelTarget, 10) || 20000,
-        status: 'active',
+        status: 'active' as const,
         start_at: new Date().toISOString(),
         end_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
       };
-      const { error } = await supabase.from('duels').insert(payload);
+      const { error } = await supabase.from('duels').insert([payload]);
       if (error) throw error;
       toast.success('Duelo lanzado');
       setDuelFriend('');

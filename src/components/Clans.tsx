@@ -256,7 +256,10 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         return;
       }
 
-      setClanFeed(data || []);
+      setClanFeed((data || []).map(item => ({
+        ...item,
+        payload: item.payload as Record<string, any> | null,
+      })));
     } catch (error) {
       console.error('Feed de clan no disponible:', error);
       setClanFeed([]);
