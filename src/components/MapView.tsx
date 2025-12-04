@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Coordinate, Territory, MapChallenge, MapPoi } from '@/types/territory';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Locate, Users, User, Globe, X, SlidersHorizontal } from 'lucide-react';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 
 interface MapViewProps {
   runPath: Coordinate[];
@@ -50,6 +51,8 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     return districtFeatures.find((feature) => feature.properties?.id === selectedDistrictId) || null;
   }, [districtFeatures, selectedDistrictId]);
   const { user } = useAuth();
+  const { settings: playerSettings, loading: settingsLoading } = usePlayerSettings();
+  const [explorerRoutes, setExplorerRoutes] = useState<{ id: string; path: Coordinate[]; created_at?: string | null }[]>([]);
 
   const isPointInPolygon = (point: Coordinate, polygon: Coordinate[]) => {
     let inside = false;
@@ -221,54 +224,93 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     loadFriends();
   }, [user]);
 
-  useEffect(() => {
-    const loadTerritories = async () => {
-      const { data, error } = await supabase
-        .from('territories')
-        .select(`
-          *,
-          profiles:user_id (username, color),
-          shields:territory_shields(expires_at)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      
-      if (error) {
-        console.error('Error cargando territorios:', error);
-        return;
-      }
+  const loadExplorerRoutes = useCallback(async () => {
+    if (!user) {
+      setExplorerRoutes([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('explorer_territories')
+      .select('id, path, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
 
-      if (data) {
-        const formattedTerritories: Territory[] = data.map((t: any) => ({
-          id: t.id,
-          owner: t.profiles?.username || 'Usuario',
-          userId: t.user_id,
-          coordinates: t.coordinates as Coordinate[],
-          area: t.area,
-          perimeter: t.perimeter,
-          avgPace: t.avg_pace,
-          points: t.points,
-          color: t.profiles?.color || '#8b5cf6',
-          timestamp: new Date(t.created_at).getTime(),
-          conquered: t.conquered,
-          protectedUntil: t.protected_until,
-          cooldownUntil: t.cooldown_until,
-          status: t.status,
-          requiredPace: t.required_pace,
-          lastAttackerId: t.last_attacker_id,
-          lastAttackAt: t.last_attack_at,
-          conquestPoints: t.conquest_points,
-          tags: t.tags || [],
-          poiSummary: t.poi_summary || null,
-          shieldExpires: t.shields?.length ? t.shields[0].expires_at : null,
-        }));
-        setTerritories(formattedTerritories);
-      }
-    };
+    if (error) {
+      console.error('Error cargando exploraciones:', error);
+      setExplorerRoutes([]);
+    } else {
+      setExplorerRoutes(
+        (data || []).map((row: any) => ({
+          id: row.id,
+          path: row.path as Coordinate[],
+          created_at: row.created_at,
+        }))
+      );
+    }
+  }, [user]);
+
+  const loadTerritories = useCallback(async () => {
+    if (!playerSettings || playerSettings.explorerMode) {
+      setTerritories([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('territories')
+      .select(`
+        *,
+        profiles:user_id (username, color),
+        shields:territory_shields(expires_at)
+      `)
+      .eq('league_shard', playerSettings.leagueShard)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('Error cargando territorios:', error);
+      return;
+    }
+
+    if (data) {
+      const formattedTerritories: Territory[] = data.map((t: any) => ({
+        id: t.id,
+        owner: t.profiles?.username || 'Usuario',
+        userId: t.user_id,
+        coordinates: t.coordinates as Coordinate[],
+        area: t.area,
+        perimeter: t.perimeter,
+        avgPace: t.avg_pace,
+        points: t.points,
+        color: t.profiles?.color || '#8b5cf6',
+        timestamp: new Date(t.created_at).getTime(),
+        conquered: t.conquered,
+        protectedUntil: t.protected_until,
+        cooldownUntil: t.cooldown_until,
+        status: t.status,
+        requiredPace: t.required_pace,
+        lastAttackerId: t.last_attacker_id,
+        lastAttackAt: t.last_attack_at,
+        conquestPoints: t.conquest_points,
+        tags: t.tags || [],
+        poiSummary: t.poi_summary || null,
+        shieldExpires: t.shields?.length ? t.shields[0].expires_at : null,
+      }));
+      setTerritories(formattedTerritories);
+    }
+  }, [playerSettings]);
+
+  useEffect(() => {
+    if (settingsLoading) return;
+    if (playerSettings?.explorerMode) {
+      loadExplorerRoutes();
+      return;
+    }
 
     loadTerritories();
 
-    // Suscribirse a cambios en tiempo real
+    const filter = playerSettings?.leagueShard ? `league_shard=eq.${playerSettings.leagueShard}` : undefined;
+
     const channel = supabase
       .channel('territories-changes')
       .on(
@@ -277,8 +319,10 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           event: 'UPDATE',
           schema: 'public',
           table: 'territories',
+          filter,
         },
         async (payload: any) => {
+          if (playerSettings?.explorerMode) return;
           // Detectar robo de territorio
           if (payload.old.user_id === user?.id && payload.new.user_id !== user?.id) {
             const { data: thief } = await supabase
@@ -326,8 +370,10 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           event: 'INSERT',
           schema: 'public',
           table: 'territories',
+          filter,
         },
         async (payload: any) => {
+          if (playerSettings?.explorerMode) return;
           // Efecto visual si el territorio es del usuario actual
           if (payload.new.user_id === user?.id && map.current) {
             const coords = payload.new.coordinates as Coordinate[];
@@ -359,8 +405,10 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           event: 'DELETE',
           schema: 'public',
           table: 'territories',
+          filter,
         },
         () => {
+          if (playerSettings?.explorerMode) return;
           loadTerritories();
         }
       )
@@ -369,7 +417,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [playerSettings, settingsLoading, loadTerritories, loadExplorerRoutes, user]);
 
   useEffect(() => {
     if (!map.current) return;
@@ -715,6 +763,47 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       };
     }
   }, [territories, friendIds, user, territoryFilter]);
+
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+
+    if (map.current.getLayer('explorer-routes-line')) {
+      map.current.removeLayer('explorer-routes-line');
+    }
+    if (map.current.getSource('explorer-routes')) {
+      map.current.removeSource('explorer-routes');
+    }
+
+    if (!playerSettings?.explorerMode || explorerRoutes.length === 0) return;
+
+    const geojson = {
+      type: 'FeatureCollection',
+      features: explorerRoutes.map(route => ({
+        type: 'Feature',
+        properties: { id: route.id },
+        geometry: {
+          type: 'LineString',
+          coordinates: route.path.map(point => [point.lng, point.lat]),
+        },
+      })),
+    } as any;
+
+    map.current.addSource('explorer-routes', {
+      type: 'geojson',
+      data: geojson,
+    });
+
+    map.current.addLayer({
+      id: 'explorer-routes-line',
+      type: 'line',
+      source: 'explorer-routes',
+      paint: {
+        'line-color': '#38bdf8',
+        'line-width': 3,
+        'line-opacity': 0.8,
+      },
+    });
+  }, [explorerRoutes, playerSettings?.explorerMode]);
 
   useEffect(() => {
     if (!mapReady || !map.current || !map.current.isStyleLoaded()) return;
@@ -1094,10 +1183,31 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="absolute inset-0" />
       
+      {/* Indicación de modo */}
+      <div className="absolute top-4 right-4 z-20 space-y-2 text-right">
+        {playerSettings?.explorerMode ? (
+          <Card className="px-4 py-2 bg-sky-500/10 text-sky-200 border border-sky-500/40 shadow-lg">
+            <p className="text-xs uppercase tracking-widest">Modo Explorador</p>
+            <p className="text-sm">Guardando recuerdos personales</p>
+          </Card>
+        ) : playerSettings?.socialLeague ? (
+          <Card className="px-4 py-2 bg-emerald-500/10 text-emerald-200 border border-emerald-500/40 shadow-lg">
+            <p className="text-xs uppercase tracking-widest">Liga Social</p>
+            <p className="text-sm">Cooperando sin invasiones</p>
+          </Card>
+        ) : (
+          <Card className="px-4 py-2 bg-muted/70 text-foreground border border-border shadow-lg">
+            <p className="text-xs uppercase tracking-widest">Shard activo</p>
+            <p className="text-sm font-semibold">{playerSettings?.leagueShard || 'bronze-1'}</p>
+          </Card>
+        )}
+      </div>
+
       {/* Filtros */}
-      <div
-        className={`absolute top-4 left-4 z-20 flex flex-col gap-2 transition-opacity duration-200 ${overlayActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-      >
+      {!playerSettings?.explorerMode && (
+        <div
+          className={`absolute top-4 left-4 z-20 flex flex-col gap-2 transition-opacity duration-200 ${overlayActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+        >
         <Button
           variant="secondary"
           size="sm"
@@ -1155,7 +1265,8 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             </div>
           </Card>
         )}
-      </div>
+        </div>
+      )}
       
       {/* Botón de centrar ubicación */}
       <Button

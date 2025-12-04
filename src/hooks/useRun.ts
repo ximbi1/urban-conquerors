@@ -19,6 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { useAchievements } from './useAchievements';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 
 export const useRun = () => {
   const [isRunning, setIsRunning] = useState(false);
@@ -34,6 +35,7 @@ export const useRun = () => {
   const [lastPauseTime, setLastPauseTime] = useState<number | null>(null);
   const { user } = useAuth();
   const { checkAndUnlockAchievements } = useAchievements();
+  const { settings: playerSettings } = usePlayerSettings();
 
   const updateActiveDuels = async (
     distanceValue: number,
@@ -278,6 +280,41 @@ export const useRun = () => {
       };
 
       try {
+        if (playerSettings?.explorerMode) {
+          await supabase
+            .from('explorer_territories')
+            .insert({
+              user_id: user.id,
+              path: normalizedPath,
+              distance: smoothedDistance,
+              duration,
+              metadata: { source: useGPS ? 'live' : 'manual' },
+            });
+          toast.success('Ruta guardada en modo explorador');
+          setIsSaving(false);
+          setIsRunning(false);
+          setIsPaused(false);
+          return {
+            conquered,
+            stolen,
+            lost,
+            pointsGained,
+            run: {
+              id: runIdentifier ?? `run-${Date.now()}`,
+              userId: user.id,
+              path: normalizedPath,
+              distance: smoothedDistance,
+              duration,
+              avgPace: calculateAveragePace(smoothedDistance, duration),
+              territoriesConquered: 0,
+              territoriesStolen: 0,
+              territoriesLost: 0,
+              pointsGained: 0,
+              timestamp: Date.now(),
+            },
+          };
+        }
+
         const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
           body: {
             path: normalizedPath,

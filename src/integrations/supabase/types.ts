@@ -431,6 +431,44 @@ export type Database = {
         }
         Relationships: []
       }
+      explorer_territories: {
+        Row: {
+          created_at: string
+          distance: number
+          duration: number
+          id: string
+          metadata: Json | null
+          path: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          distance?: number
+          duration?: number
+          id?: string
+          metadata?: Json | null
+          path: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          distance?: number
+          duration?: number
+          id?: string
+          metadata?: Json | null
+          path?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "explorer_territories_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       friendships: {
         Row: {
           created_at: string
@@ -763,10 +801,13 @@ export type Database = {
           created_at: string
           current_league: string | null
           current_streak: number
+          explorer_mode: boolean | null
           historical_points: number | null
           id: string
+          league_shard: string | null
           previous_league: string | null
           season_points: number | null
+          social_league: boolean | null
           total_distance: number
           total_points: number
           total_territories: number
@@ -780,10 +821,13 @@ export type Database = {
           created_at?: string
           current_league?: string | null
           current_streak?: number
+          explorer_mode?: boolean | null
           historical_points?: number | null
           id: string
+          league_shard?: string | null
           previous_league?: string | null
           season_points?: number | null
+          social_league?: boolean | null
           total_distance?: number
           total_points?: number
           total_territories?: number
@@ -797,10 +841,13 @@ export type Database = {
           created_at?: string
           current_league?: string | null
           current_streak?: number
+          explorer_mode?: boolean | null
           historical_points?: number | null
           id?: string
+          league_shard?: string | null
           previous_league?: string | null
           season_points?: number | null
+          social_league?: boolean | null
           total_distance?: number
           total_points?: number
           total_territories?: number
@@ -896,6 +943,7 @@ export type Database = {
           distance: number
           duration: number
           id: string
+          league_shard: string | null
           path: Json
           points_gained: number
           territories_conquered: number
@@ -909,6 +957,7 @@ export type Database = {
           distance: number
           duration: number
           id?: string
+          league_shard?: string | null
           path: Json
           points_gained?: number
           territories_conquered?: number
@@ -922,6 +971,7 @@ export type Database = {
           distance?: number
           duration?: number
           id?: string
+          league_shard?: string | null
           path?: Json
           points_gained?: number
           territories_conquered?: number
@@ -1033,6 +1083,7 @@ export type Database = {
           last_attack_at: string | null
           last_attacker_id: string | null
           last_defender_id: string | null
+          league_shard: string | null
           perimeter: number
           poi_summary: string | null
           points: number
@@ -1055,6 +1106,7 @@ export type Database = {
           last_attack_at?: string | null
           last_attacker_id?: string | null
           last_defender_id?: string | null
+          league_shard?: string | null
           perimeter: number
           poi_summary?: string | null
           points: number
@@ -1077,6 +1129,7 @@ export type Database = {
           last_attack_at?: string | null
           last_attacker_id?: string | null
           last_defender_id?: string | null
+          league_shard?: string | null
           perimeter?: number
           poi_summary?: string | null
           points?: number
@@ -1284,6 +1337,7 @@ export type Database = {
     }
     Functions: {
       calculate_user_streak: { Args: { p_user_id: string }; Returns: number }
+      is_member_of_clan: { Args: { check_clan: string }; Returns: boolean }
     }
     Enums: {
       achievement_type: "distance" | "territories" | "streak"

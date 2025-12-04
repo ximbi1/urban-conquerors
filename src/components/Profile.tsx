@@ -21,6 +21,8 @@ import { calculateLevel, getLevelTitle, getLevelColor } from '@/utils/levelSyste
 import { TerritoryInfoTooltip } from './TerritoryInfoTooltip';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
+import { Switch } from '@/components/ui/switch';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 
 const profileSchema = z.object({
   username: z.string().min(3, 'El nombre debe tener al menos 3 caracteres').max(20, 'El nombre no puede tener más de 20 caracteres'),
@@ -83,6 +85,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
   const [userClan, setUserClan] = useState<{ id: string; name: string; description: string | null; banner_color?: string | null } | null>(null);
   const { unlockedAchievements } = useAchievements();
   const levelInfo = profile ? calculateLevel(profile.total_points) : null;
+  const { settings: playerSettings, updateSettings } = usePlayerSettings();
   
   const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
@@ -904,6 +907,43 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
             </Button>
           </div>
         </div>
+
+        <Card className="p-4 border border-border flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Modo explorador</p>
+              <p className="text-xs text-muted-foreground">Guarda rutas personales sin disputar territorios</p>
+            </div>
+            <Switch
+              checked={playerSettings.explorerMode}
+              onCheckedChange={async (checked) => {
+                try {
+                  await updateSettings({ explorerMode: checked });
+                  toast.success(checked ? 'Modo explorador activado' : 'Modo competitivo activado');
+                } catch (error) {
+                  toast.error('No se pudo actualizar el modo');
+                }
+              }}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Liga social</p>
+              <p className="text-xs text-muted-foreground">Colabora con otros runners sin perder territorios</p>
+            </div>
+            <Switch
+              checked={playerSettings.socialLeague}
+              onCheckedChange={async (checked) => {
+                try {
+                  await updateSettings({ socialLeague: checked });
+                  toast.success(checked ? 'Liga social activada' : 'Liga social desactivada');
+                } catch (error) {
+                  toast.error('No se pudo actualizar la liga social');
+                }
+              }}
+            />
+          </div>
+        </Card>
 
         {userClan && (
           <Card className="p-3 border border-primary/30 bg-primary/5">
