@@ -150,12 +150,9 @@ const calculateLevel = (totalPoints: number) => {
   return level
 }
 
-const getMaxAreaForLevel = (level: number) => {
-  const base = 200000
-  const increment = 50000
-  const max = base + (level - 1) * increment
-  const hardCap = 5_000_000
-  return Math.min(max, hardCap)
+const getMaxAreaForLevel = (_level: number) => {
+  // Flexibilizamos el límite: todos los niveles comparten el tope global de 5 km².
+  return 5_000_000
 }
 
 const calculateDefenseBonusMinutes = (level: number): number => {
@@ -665,7 +662,7 @@ Deno.serve(async (req) => {
 
     if (area > maxArea) {
       return new Response(
-        JSON.stringify({ error: `El área (${Math.round(area)} m²) supera tu límite actual` }),
+        JSON.stringify({ error: `El área (${Math.round(area)} m²) supera el límite permitido (${Math.round(maxArea)} m²)` }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
