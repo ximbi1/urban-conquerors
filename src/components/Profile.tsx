@@ -1,4 +1,4 @@
-import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, History, ShieldHalf, ShieldCheck, Loader2, Shield } from 'lucide-react';
+import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, ShieldHalf, ShieldCheck, Loader2, Shield } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/AuthContext';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, memo } from 'react';
 import { Run, Territory } from '@/types/territory';
 import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
@@ -33,7 +33,6 @@ interface ProfileProps {
   onClose: () => void;
   isMobileFullPage?: boolean;
   onImportClick?: () => void;
-  onHistoryClick?: () => void;
 }
 
 type ProfileFormData = z.infer<typeof profileSchema>;
@@ -68,7 +67,7 @@ const getTerritoryLocation = (territory: DefenseTerritory) => {
   return `${centroid.lat.toFixed(3)}, ${centroid.lng.toFixed(3)}`;
 };
 
-const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryClick }: ProfileProps) => {
+const Profile = ({ onClose, isMobileFullPage = false, onImportClick }: ProfileProps) => {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -687,15 +686,6 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick, onHistoryCl
               >
                 <FileUp className="w-4 h-4 mr-2" />
                 Importar
-              </Button>
-            )}
-            {onHistoryClick && (
-              <Button
-                variant="outline"
-                onClick={onHistoryClick}
-              >
-                <History className="w-4 h-4 mr-2" />
-                Historial
               </Button>
             )}
           </div>
