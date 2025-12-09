@@ -1145,6 +1145,45 @@ Deno.serve(async (req) => {
       action = 'stolen'
       pointsGained = rewardPointsPartial
 
+      // Si el atacante recorrió zona fuera del territorio defensor, crear un territorio adicional con el resto de su polígono
+      const attackerRemainderGeom = difference(runPolygon, targetTerritoryPolygon) || difference(buffer(runPolygon, 0), buffer(targetTerritoryPolygon, 0))
+      if (attackerRemainderGeom) {
+        const remainderCoords = toLatLngCoordsFromGeo(attackerRemainderGeom)
+        const closedRemainder = ensureClosed(remainderCoords)
+        const remainderArea = calculatePolygonArea(closedRemainder)
+        if (remainderArea >= MINIMUM_AREA_M2 && closedRemainder.length >= 4) {
+          const remainderPerimeter = calculatePerimeter(closedRemainder)
+          const rewardPointsRemainder = calculateRewardPoints(distance, remainderArea, false)
+          const { data: remainderInsert } = await supabaseAdmin
+            .from('territories')
+            .insert({
+              user_id: user.id,
+              coordinates: closedRemainder,
+              area: remainderArea,
+              perimeter: remainderPerimeter,
+              avg_pace: avgPace,
+              required_pace: newRequiredPace,
+              protected_until: protectedUntil,
+              cooldown_until: new Date(now.getTime() + STEAL_COOLDOWN_MS).toISOString(),
+              status: 'protected',
+              conquest_points: rewardPointsRemainder,
+              points: rewardPointsRemainder,
+              league_shard: profile.league_shard || 'bronze-1',
+            })
+            .select('id')
+            .single()
+
+          if (remainderInsert?.id) {
+            territoriesConquered += 1
+            pointsGained += rewardPointsRemainder
+            profileState.total_points = (profileState.total_points || 0) + rewardPointsRemainder
+            profileState.season_points = (profileState.season_points || 0) + rewardPointsRemainder
+            profileState.historical_points = (profileState.historical_points || 0) + rewardPointsRemainder
+            profileState.total_territories = (profileState.total_territories || 0) + 1
+          }
+        }
+      }
+
       profileState.total_points = (profileState.total_points || 0) + rewardPointsPartial
       profileState.season_points = (profileState.season_points || 0) + rewardPointsPartial
       profileState.historical_points = (profileState.historical_points || 0) + rewardPointsPartial
