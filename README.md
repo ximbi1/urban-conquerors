@@ -59,7 +59,7 @@ URBANZ fusiona tres elementos:
 - **Distancia mínima**: 100m para registrar carrera válida
 
 ### 📱 Experiencia de Usuario
-- **PWA**: Instalable como app nativa
+- **PWA**: Instalable como app nativa (https://urbanz-gamma.vercel.app)
 - **Filtros de mapa**: Visualiza solo tus territorios, de amigos o todos
 - **Capas OSM**: Parques, fuentes y barrios reales (polígonos importados de OpenStreetMap) con toggles independientes
 - **Barrios interactivos**: El contorno se resalta al tocarlo y muestra área/perímetro para saber cuánto debes rodear
@@ -126,6 +126,13 @@ Para empaquetar la PWA como apps nativas usamos **Capacitor 6**, compatible con 
 - `useRun`: al iniciar carrera nativa enciende `KeepAwake` + `Haptics` y llama al servicio foreground Android; libera recursos al finalizar.
 - Mantén los codepaths web activos para la versión browser/PWA.
 
+### 6. Web/PWA para pruebas
+- **URL**: https://urbanz-gamma.vercel.app/
+- Puedes instalarla como app de escritorio (PWA) desde el navegador:
+  - En Chrome/Edge: abre la URL, pulsa el icono de instalación en la barra de direcciones o “Instalar aplicación” en el menú ⋮. 
+  - En iOS/Android (Safari/Chrome): “Añadir a pantalla de inicio” desde el menú de compartir/opciones. 
+  - Esto crea un icono y abre la app a pantalla completa con el service worker (modo offline y notificaciones web si concedes permiso).
+
 ### 5. Flujo de desarrollo nativo
 - Lanza `npx cap sync` tras modificar plugins o `capacitor.config.ts`.
 - Usa `npx cap open ios` / `npx cap open android` para abrir Xcode/Android Studio y probar en simulador o dispositivo real.
@@ -143,6 +150,13 @@ Con estos pasos puedes iterar sobre la app web y móvil en paralelo sin duplicar
 2. **Correr formando polígono** → El GPS registra tu ruta
 3. **Cerrar el polígono** → Termina cerca del punto de inicio
 4. **Finalizar carrera** → Se calcula área, puntos y territorios
+
+#### Reglas actuales (cliente + función `process-territory-claim`)
+- **Área**: mínimo 50 m², máximo global 5 km² (ya no depende del nivel).
+- **Múltiples territorios por carrera**: detectamos bucles cerrados dentro de una misma ruta; cada bucle válido se guarda como territorio independiente. Si no cierras manualmente, autocerramos la ruta uniendo el último punto con el primero.
+- **Robos parciales**: aunque el solape sea alto, sólo se roba la porción recorrida. El territorio defensor se recorta (difference) y el atacante recibe un territorio nuevo con el área robada. Protecciones (24h), cooldown (6h), ritmo requerido y escudos siguen aplicando.
+- **Refuerzo**: si es tu territorio y el solape es significativo, se actualiza el territorio existente (área/ritmo) y queda protegido.
+- **Validaciones**: velocidad media ≤25 km/h; ritmo no estático (>30 min/km se rechaza); patrón anti-saltos; polígono cerrado (o autocierre) para ser válido.
 
 **Puntos otorgados:**
 ```
@@ -196,7 +210,7 @@ Nivel = Math.floor(Math.sqrt(total_distance / 5)) + 1
 
 ---
 
-## 📊 Estructura del Proyecto
+## 📊 Estructura del Proyecto (web + móvil compartido)
 
 ```
 src/
@@ -367,7 +381,7 @@ npm run dev
 
 La app estará en `http://localhost:8080`
 
-> PWA listo: el repo incluye `manifest.json` e iconos, así que puedes instalar URBANZ desde el navegador (Chrome → “Añadir a pantalla de inicio”). Esto garantiza que las push notifications sigan funcionando cuando se use como app.
+> PWA listo: el repo incluye `manifest.json` e iconos, así que puedes instalar URBANZ desde el navegador (Chrome → “Añadir a pantalla de inicio”). También puedes usar directamente la build hospedada en https://urbanz-gamma.vercel.app/ y “Instalar aplicación” en la barra de direcciones.
 
 ### Despliegue
 
