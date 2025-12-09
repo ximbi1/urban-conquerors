@@ -853,16 +853,43 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
 
     if (!showParks) return;
 
+    const isPointInPolygon = (point: Coordinate, polygon: Coordinate[]) => {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].lng;
+        const yi = polygon[i].lat;
+        const xj = polygon[j].lng;
+        const yj = polygon[j].lat;
+
+        const intersect = ((yi > point.lat) !== (yj > point.lat)) &&
+          (point.lng < ((xj - xi) * (point.lat - yi)) / Math.max(yj - yi, 1e-9) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
+
     const parkFeatures = mapPois
       .filter(poi => poi.category === 'park' && poi.coordinates?.length)
-      .map(poi => ({
-        type: 'Feature' as const,
-        properties: { name: poi.name },
-        geometry: {
-          type: 'Polygon' as const,
-          coordinates: [poi.coordinates.map(c => [c.lng, c.lat])],
-        },
-      }));
+      .map(poi => {
+        const perimeter = calculatePerimeter(poi.coordinates);
+        const bounds = new mapboxgl.LngLatBounds(
+          [poi.coordinates[0].lng, poi.coordinates[0].lat],
+          [poi.coordinates[0].lng, poi.coordinates[0].lat]
+        );
+        poi.coordinates.forEach(c => bounds.extend([c.lng, c.lat]));
+        const center = bounds.getCenter();
+        const centroid: Coordinate = { lat: center.lat, lng: center.lng };
+        const ownerTerritory = territories.find(t => isPointInPolygon(centroid, t.coordinates));
+
+        return {
+          type: 'Feature' as const,
+          properties: { name: poi.name, perimeter, owner: ownerTerritory?.owner || null },
+          geometry: {
+            type: 'Polygon' as const,
+            coordinates: [poi.coordinates.map(c => [c.lng, c.lat])],
+          },
+        };
+      });
 
     if (!parkFeatures.length) return;
 
@@ -899,12 +926,20 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       if (!e.features || !e.features[0]) return;
       const props: any = e.features[0].properties;
       const name = props.name || 'Parque';
+      const perimeter = props.perimeter ? Number(props.perimeter) : 0;
+      const owner = props.owner;
       new mapboxgl.Popup()
         .setLngLat(e.lngLat)
         .setHTML(`
           <div style="min-width: 180px;">
             <p style="font-weight:600;margin-bottom:4px;">${name}</p>
             <p style="font-size:12px;color:#475569;margin-bottom:6px;">Parque incluido en el mapa.</p>
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
+              <span>🌳</span>
+              <span>${name}</span>
+            </div>
+            <div style="font-size:12px;margin-top:6px;">Perímetro: ${formatPerimeter(perimeter)}</div>
+            ${owner ? `<div style="font-size:12px;margin-top:4px;">Pertenece a: <strong>${owner}</strong></div>` : '<div style="font-size:12px;margin-top:4px;">Disponible</div>'}
           </div>
         `)
         .addTo(map.current!);

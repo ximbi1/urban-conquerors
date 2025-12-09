@@ -27,6 +27,7 @@ const UserProfile = lazy(() => import('@/components/UserProfile'));
 const ImportRun = lazy(() => import('@/components/ImportRun').then(m => ({ default: m.ImportRun })));
 const RunHistory = lazy(() => import('@/components/RunHistory').then(m => ({ default: m.RunHistory })));
 const Clans = lazy(() => import('@/components/Clans'));
+const Zones = lazy(() => import('@/components/Zones'));
 const Notifications = lazy(() => import('@/components/Notifications'));
 
 const activityTabs = [
@@ -37,6 +38,7 @@ const activityTabs = [
 const competeTabs = [
   { id: 'leagues', label: 'Ligas' },
   { id: 'challenges', label: 'Retos' },
+  { id: 'zones', label: 'Zonas (Parques/Barrios)' },
 ];
 
 const communityTabs = [
@@ -276,8 +278,10 @@ const Index = () => {
             <Suspense fallback={<SectionLoader />}>
               {competeTab === 'leagues' ? (
                 <Leagues onClose={() => setActiveSection('home')} isMobileFullPage />
-              ) : (
+              ) : competeTab === 'challenges' ? (
                 <Challenges onClose={() => setActiveSection('home')} isMobileFullPage />
+              ) : (
+                <Zones onClose={() => setActiveSection('home')} isMobileFullPage />
               )}
             </Suspense>
           </div>
@@ -405,6 +409,9 @@ const Index = () => {
           )}
           {activeSection === 'compete' && competeTab === 'challenges' && (
             <Challenges onClose={() => setActiveSection('home')} />
+          )}
+          {activeSection === 'compete' && competeTab === 'zones' && (
+            <Zones onClose={() => setActiveSection('home')} />
           )}
           {activeSection === 'compete' && competeTab === 'leagues' && (
             <Leagues onClose={() => setActiveSection('home')} />
