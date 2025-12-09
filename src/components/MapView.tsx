@@ -757,16 +757,25 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       const popupHandler = (e: mapboxgl.MapMouseEvent) => {
         if (!e.features || !e.features[0]) return;
         const props: any = e.features[0].properties;
-        let parsedPoiTags: string[] = [];
-        if (Array.isArray(props.poiTags)) {
-          parsedPoiTags = props.poiTags as string[];
-        } else if (typeof props.poiTags === 'string') {
-          try {
-            parsedPoiTags = JSON.parse(props.poiTags);
-          } catch (err) {
-            parsedPoiTags = [];
+        const normalizeTags = (raw: any): string[] => {
+          if (!raw) return [];
+          let arr: any = raw;
+          if (typeof raw === 'string') {
+            try {
+              arr = JSON.parse(raw);
+            } catch {
+              arr = [raw];
+            }
           }
-        }
+          if (!Array.isArray(arr)) arr = [arr];
+          return arr.map((t: any) => {
+            if (typeof t === 'string') return t;
+            if (t && typeof t === 'object') return t.name || t.type || JSON.stringify(t);
+            return String(t);
+          });
+        };
+        const parsedPoiTags = normalizeTags(props.poiTags);
+        const safePoiSummary = typeof props.poiSummary === 'string' ? props.poiSummary : (props.poiSummary ? JSON.stringify(props.poiSummary) : null);
         setSelectedTerritory({
           owner: props.owner,
           area: Number(props.area) || 0,
@@ -777,7 +786,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           protectedLabel: props.protectedLabel || null,
           cooldownLabel: props.cooldownLabel || null,
           shieldLabel: props.shieldLabel || null,
-          poiSummary: props.poiSummary || null,
+          poiSummary: safePoiSummary,
           poiTags: parsedPoiTags,
           color: props.color,
         });
@@ -1420,8 +1429,8 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             )}
             {selectedTerritory.poiTags?.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {selectedTerritory.poiTags.map((tag: string) => (
-                  <span key={tag} className="px-2 py-1 rounded-full bg-muted/60 text-muted-foreground">{tag}</span>
+                {selectedTerritory.poiTags.map((tag: string, idx: number) => (
+                  <span key={`${tag}-${idx}`} className="px-2 py-1 rounded-full bg-muted/60 text-muted-foreground">{tag}</span>
                 ))}
               </div>
             )}
