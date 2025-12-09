@@ -346,23 +346,76 @@ export const useRun = () => {
     const normalizedPath = limitPathPoints(smoothPath(runPath), 400);
     const smoothedDistance = calculatePathDistance(normalizedPath);
 
-    // Verificar si se cerró un polígono
-    if (normalizedPath.length >= 4 && isPolygonClosed(normalizedPath)) {
-      const area = calculatePolygonArea(normalizedPath);
-      const avgPace = calculateAveragePace(smoothedDistance, duration);
+    // Función para partir la ruta en bucles cerrados
+    const extractLoops = (path: Coordinate[]): Coordinate[][] => {
+      const loops: Coordinate[][] = [];
+      let startIndex = 0;
+      const CLOSE_THRESHOLD = 40; // metros
 
-      // Obtener nivel del usuario
-      const { data: userProfile } = await supabase
-        .from('profiles')
-        .select('total_points')
-        .eq('id', user.id)
-        .single();
+      for (let i = 1; i < path.length; i++) {
+        const dist = calculatePathDistance([path[startIndex], path[i]]);
+        if (dist <= CLOSE_THRESHOLD && i - startIndex >= 3) {
+          const loop = path.slice(startIndex, i + 1);
+          const first = loop[0];
+          const last = loop[loop.length - 1];
+          if (first.lat !== last.lat || first.lng !== last.lng) {
+            loop.push({ ...first });
+          }
+          loops.push(loop);
+          startIndex = i;
+        }
+      }
 
-      const userLevel = userProfile ? calculateLevel(userProfile.total_points).level : 1;
+      // Si no hubo bucles, devolver la ruta completa cerrada implícitamente
+      if (loops.length === 0) {
+        const loop = [...path];
+        const first = loop[0];
+        const last = loop[loop.length - 1];
+        if (first && last && (first.lat !== last.lat || first.lng !== last.lng)) {
+          loop.push({ ...first });
+        }
+        if (loop.length >= 4) loops.push(loop);
+        return loops;
+      }
 
-      // VALIDAR LA CARRERA COMPLETA
-      const validation = validateRun(normalizedPath, duration, area, userLevel);
-      
+      // Si quedan puntos al final y forman un bucle, incluirlos
+      if (startIndex < path.length - 3) {
+        const tail = path.slice(startIndex);
+        const firstTail = tail[0];
+        const lastTail = tail[tail.length - 1];
+        if (firstTail && lastTail && (firstTail.lat !== lastTail.lat || firstTail.lng !== lastTail.lng)) {
+          tail.push({ ...firstTail });
+        }
+        if (tail.length >= 4) {
+          loops.push(tail);
+        }
+      }
+
+      return loops;
+    };
+
+    const loops = extractLoops(normalizedPath);
+
+    // Obtener nivel del usuario
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('total_points')
+      .eq('id', user.id)
+      .single();
+
+    const userLevel = userProfile ? calculateLevel(userProfile.total_points).level : 1;
+
+    // Procesar cada bucle como territorio independiente
+    for (const loopPath of loops) {
+      const loopDistance = calculatePathDistance(loopPath);
+      const durationShare = smoothedDistance > 0 ? (duration * (loopDistance / smoothedDistance)) : duration;
+
+      if (loopPath.length < 4) continue;
+
+      const area = calculatePolygonArea(loopPath);
+      const avgPace = calculateAveragePace(loopDistance, durationShare);
+
+      const validation = validateRun(loopPath, durationShare, area, userLevel);
       if (!validation.isValid) {
         toast.error('Carrera no válida', {
           description: validation.errors.join('. '),
@@ -373,28 +426,28 @@ export const useRun = () => {
         return;
       }
 
-      const saveOfflineRun = () => {
-        enqueueOfflineRun(
-          {
-            path: normalizedPath,
-            duration,
-            source: useGPS ? 'live' : 'manual',
-            userId: user.id,
-          },
-          {
-            createdAt: new Date().toISOString(),
-            distance: smoothedDistance,
-            area,
-            avgPace,
-          }
-        );
-        toast.info('Carrera guardada offline', {
-          description: 'Se sincronizará automáticamente cuando vuelvas a tener conexión',
-        });
-        setIsSaving(false);
-        setIsRunning(false);
-        setIsPaused(false);
-      };
+        const saveOfflineRun = () => {
+          enqueueOfflineRun(
+            {
+              path: loopPath,
+              duration: durationShare,
+              source: useGPS ? 'live' : 'manual',
+              userId: user.id,
+            },
+            {
+              createdAt: new Date().toISOString(),
+              distance: loopDistance,
+              area,
+              avgPace,
+            }
+          );
+          toast.info('Carrera guardada offline', {
+            description: 'Se sincronizará automáticamente cuando vuelvas a tener conexión',
+          });
+          setIsSaving(false);
+          setIsRunning(false);
+          setIsPaused(false);
+        };
 
       try {
         if (playerSettings?.explorerMode) {
@@ -434,8 +487,8 @@ export const useRun = () => {
 
         const { data: claimResult, error: claimError } = await supabase.functions.invoke('process-territory-claim', {
           body: {
-            path: normalizedPath,
-            duration,
+            path: loopPath,
+            duration: durationShare,
             source: useGPS ? 'live' : 'manual',
           },
         });
@@ -465,11 +518,11 @@ export const useRun = () => {
         }
 
         const resultData = claimResult.data;
-        conquered = resultData?.territoriesConquered ?? 0;
-        stolen = resultData?.territoriesStolen ?? 0;
-        lost = resultData?.territoriesLost ?? 0;
-        pointsGained = resultData?.pointsGained ?? 0;
-        runIdentifier = resultData?.runId ?? null;
+        conquered += resultData?.territoriesConquered ?? 0;
+        stolen += resultData?.territoriesStolen ?? 0;
+        lost += resultData?.territoriesLost ?? 0;
+        pointsGained += resultData?.pointsGained ?? 0;
+        runIdentifier = runIdentifier ?? resultData?.runId ?? null;
 
         if (resultData?.challengeRewards?.length) {
           toast.success('🏅 Desafío del mapa completado', {
@@ -520,12 +573,6 @@ export const useRun = () => {
         setIsSaving(false);
         return;
       }
-    } else {
-      toast.error('La ruta debe formar un polígono cerrado para conquistar territorios');
-      setIsSaving(false);
-      setIsRunning(false);
-      setIsPaused(false);
-      return;
     }
 
     // Actualizar progreso de desafíos
