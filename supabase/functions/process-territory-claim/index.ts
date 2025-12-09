@@ -11,7 +11,7 @@ const PROTECTION_DURATION_MS = 24 * 60 * 60 * 1000
 const STEAL_COOLDOWN_MS = 6 * 60 * 60 * 1000
 const MINIMUM_AREA_M2 = 50
 const OVERLAP_THRESHOLD = 0.8
-const PARTIAL_OVERLAP_THRESHOLD = 0.3 // Umbral mínimo para robo parcial
+const PARTIAL_OVERLAP_THRESHOLD = 0.1 // Umbral mínimo para robo parcial
 const CLAN_MISSION_LABELS: Record<string, string> = {
   park: 'Ruta de parques',
   fountain: 'Ruta de hidratación',
@@ -265,6 +265,37 @@ const toLatLngCoordsFromGeo = (feature: any): Coordinate[] => {
   }
 
   return []
+}
+
+const ensureClosed = (coords: Coordinate[]): Coordinate[] => {
+  if (!coords.length) return coords
+  const first = coords[0]
+  const last = coords[coords.length - 1]
+  if (first.lat !== last.lat || first.lng !== last.lng) {
+    return [...coords, { ...first }]
+  }
+  return coords
+}
+
+const computeSafeDifference = (baseGeom: any, cutGeom: any): Coordinate[] | null => {
+  try {
+    let diff = difference(baseGeom, cutGeom)
+    if (!diff) {
+      // Intentar con buffer(0) para limpiar topología
+      diff = difference(buffer(baseGeom, 0), buffer(cutGeom, 0))
+    }
+    if (!diff) return null
+
+    const coords = toLatLngCoordsFromGeo(diff)
+    const closed = ensureClosed(coords)
+    if (closed.length < 4) return null
+    const a = turfArea(diff)
+    if (a < MINIMUM_AREA_M2) return null
+    return closed
+  } catch (e) {
+    console.warn('Error computing difference:', e)
+    return null
+  }
 }
 
 const calculateRewardPoints = (distance: number, area: number, isSteal: boolean) => {
@@ -1053,23 +1084,15 @@ Deno.serve(async (req) => {
         )
       }
 
-      const reducedGeom = difference(targetTerritoryPolygon, targetOverlapGeom)
-      if (!reducedGeom) {
+      const reducedCoords = computeSafeDifference(targetTerritoryPolygon, targetOverlapGeom)
+      if (!reducedCoords) {
         return new Response(
-          JSON.stringify({ error: 'No se pudo recalcular el territorio original' }),
+          JSON.stringify({ error: 'No se pudo recalcular el territorio original tras el recorte' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
 
-      const reducedCoords = toLatLngCoordsFromGeo(reducedGeom)
-      if (reducedCoords.length < 3) {
-        return new Response(
-          JSON.stringify({ error: 'El territorio restante es demasiado pequeño tras el recorte' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      }
-
-      const reducedArea = turfArea(reducedGeom)
+      const reducedArea = calculatePolygonArea(reducedCoords)
       const reducedPerimeter = calculatePerimeter(reducedCoords)
       const rewardPointsPartial = calculateRewardPoints(distance, overlapArea, true)
       const newRequiredPace = calculateRequiredPace(avgPace, userLevel)
