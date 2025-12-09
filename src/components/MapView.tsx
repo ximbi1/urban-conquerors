@@ -757,6 +757,16 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       const popupHandler = (e: mapboxgl.MapMouseEvent) => {
         if (!e.features || !e.features[0]) return;
         const props: any = e.features[0].properties;
+        let parsedPoiTags: string[] = [];
+        if (Array.isArray(props.poiTags)) {
+          parsedPoiTags = props.poiTags as string[];
+        } else if (typeof props.poiTags === 'string') {
+          try {
+            parsedPoiTags = JSON.parse(props.poiTags);
+          } catch (err) {
+            parsedPoiTags = [];
+          }
+        }
         setSelectedTerritory({
           owner: props.owner,
           area: Number(props.area) || 0,
@@ -764,11 +774,11 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           avgPace: props.avgPace,
           timestamp: props.timestamp,
           status: props.status,
-          protectedLabel: props.protectedLabel,
-          cooldownLabel: props.cooldownLabel,
-          shieldLabel: props.shieldLabel,
-          poiSummary: props.poiSummary,
-          poiTags: props.poiTags || [],
+          protectedLabel: props.protectedLabel || null,
+          cooldownLabel: props.cooldownLabel || null,
+          shieldLabel: props.shieldLabel || null,
+          poiSummary: props.poiSummary || null,
+          poiTags: parsedPoiTags,
           color: props.color,
         });
       };
