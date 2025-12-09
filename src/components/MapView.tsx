@@ -894,6 +894,30 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         'line-opacity': 0.8,
       },
     });
+
+    const parkClickHandler = (e: mapboxgl.MapMouseEvent) => {
+      if (!e.features || !e.features[0]) return;
+      const props: any = e.features[0].properties;
+      const name = props.name || 'Parque';
+      new mapboxgl.Popup()
+        .setLngLat(e.lngLat)
+        .setHTML(`
+          <div style="min-width: 180px;">
+            <p style="font-weight:600;margin-bottom:4px;">${name}</p>
+            <p style="font-size:12px;color:#475569;margin-bottom:6px;">Parque incluido en el mapa.</p>
+          </div>
+        `)
+        .addTo(map.current!);
+    };
+
+    map.current.on('click', 'parks-fill', parkClickHandler);
+    map.current.on('click', 'parks-outline', parkClickHandler);
+
+    return () => {
+      if (!map.current) return;
+      map.current.off('click', 'parks-fill', parkClickHandler);
+      map.current.off('click', 'parks-outline', parkClickHandler);
+    };
   }, [showParks, mapPois]);
 
   useEffect(() => {
