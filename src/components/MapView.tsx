@@ -47,6 +47,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   const [showDistricts, setShowDistricts] = useState(false);
   const [districtFeatures, setDistrictFeatures] = useState<any[]>([]);
   const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
+  const [selectedTerritory, setSelectedTerritory] = useState<any>(null);
   const selectedDistrict = useMemo(() => {
     if (!selectedDistrictId) return null;
     return districtFeatures.find((feature) => feature.properties?.id === selectedDistrictId) || null;
@@ -99,6 +100,12 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       );
     }
   }, []);
+
+  const formatPerimeter = (meters: number) => {
+    if (!meters || meters <= 0) return 'N/D';
+    if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+    return `${Math.round(meters)} m`;
+  };
 
   // Cargar token de Mapbox desde edge function
   useEffect(() => {
@@ -635,6 +642,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             color: territory.color,
             owner: territory.owner,
             area: Math.round(territory.area),
+            perimeter: territory.perimeter || calculatePerimeter(territory.coordinates),
             id: territory.id,
             avgPace: territory.avgPace.toFixed(2),
             timestamp: new Date(territory.timestamp).toLocaleDateString('es-ES', {
@@ -654,6 +662,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             poiSummary: territory.poiSummary || null,
             hasShield: Boolean(shieldRemaining),
             shieldLabel,
+            poiTags: territory.tags || [],
           },
           geometry: {
             type: 'Polygon' as const,
@@ -744,40 +753,24 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
         },
       });
 
-      // Tooltips mejorados
+      // Selección para mostrar panel detallado
       const popupHandler = (e: mapboxgl.MapMouseEvent) => {
         if (!e.features || !e.features[0]) return;
-        const props = e.features[0].properties;
-        const statusBadge = props.status === 'protected'
-          ? `<span style="padding:2px 6px;border-radius:999px;background:#22c55e1a;color:#22c55e;font-size:11px;">Protegido</span>`
-          : props.status === 'contested'
-            ? `<span style="padding:2px 6px;border-radius:999px;background:#f973161a;color:#f97316;font-size:11px;">En disputa</span>`
-            : '';
-        const timingInfo = [props.shieldLabel, props.protectedLabel, props.cooldownLabel]
-          .filter(Boolean)
-          .map((label: string) => `<div style=\"color:#94a3b8;\">${label}</div>`) // muted text
-          .join('');
-        const poiInfo = props.poiSummary
-          ? `<div style=\"color:#f97316;font-size:12px;\">${props.poiSummary}</div>`
-          : '';
-        new mapboxgl.Popup()
-          .setLngLat(e.lngLat)
-          .setHTML(`
-            <div style="padding: 12px; background: hsl(var(--card)); color: hsl(var(--foreground)); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); min-width: 200px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                <div style="font-weight:700;font-size:16px;color:hsl(var(--primary));">${props.owner}</div>
-                ${statusBadge}
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
-                <div><span style="color: hsl(var(--muted-foreground));">Área:</span> <strong>${props.area} m²</strong></div>
-                <div><span style="color: hsl(var(--muted-foreground));">Ritmo:</span> <strong>${props.avgPace} min/km</strong></div>
-                <div><span style=\"color: hsl(var(--muted-foreground));\">Conquistado:</span> <strong>${props.timestamp}</strong></div>
-                ${timingInfo}
-                ${poiInfo}
-              </div>
-            </div>
-          `)
-          .addTo(map.current!);
+        const props: any = e.features[0].properties;
+        setSelectedTerritory({
+          owner: props.owner,
+          area: Number(props.area) || 0,
+          perimeter: Number(props.perimeter) || 0,
+          avgPace: props.avgPace,
+          timestamp: props.timestamp,
+          status: props.status,
+          protectedLabel: props.protectedLabel,
+          cooldownLabel: props.cooldownLabel,
+          shieldLabel: props.shieldLabel,
+          poiSummary: props.poiSummary,
+          poiTags: props.poiTags || [],
+          color: props.color,
+        });
       };
 
       map.current.on('click', 'territories-fill', popupHandler);
@@ -1366,6 +1359,64 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             </div>
             <div className="mt-4 text-xs text-muted-foreground">
               Rodea todo el contorno resaltado para reclamar el distrito completo. Usa escudos si quieres mantenerlo protegido.
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {selectedTerritory && (
+        <div className="fixed inset-0 z-[85] flex items-end justify-center px-4 pb-6 bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-lg bg-card/95 border-glow p-4 animate-in slide-in-from-bottom duration-200">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Territorio</p>
+                <h3 className="text-xl font-display font-bold" style={{ color: selectedTerritory.color || 'hsl(var(--primary))' }}>
+                  {selectedTerritory.owner || 'Desconocido'}
+                </h3>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedTerritory(null)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-muted-foreground text-xs">Área</p>
+                <p className="font-semibold">{selectedTerritory.area?.toLocaleString('es-ES')} m²</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">Perímetro</p>
+                <p className="font-semibold">{formatPerimeter(selectedTerritory.perimeter || 0)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">Ritmo medio</p>
+                <p className="font-semibold">{selectedTerritory.avgPace} min/km</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground text-xs">Conquistado</p>
+                <p className="font-semibold">{selectedTerritory.timestamp}</p>
+              </div>
+            </div>
+            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+              {[selectedTerritory.shieldLabel, selectedTerritory.protectedLabel, selectedTerritory.cooldownLabel]
+                .filter(Boolean)
+                .map((label: string) => (
+                  <div key={label}>{label}</div>
+                ))}
+            </div>
+            {selectedTerritory.poiSummary && (
+              <div className="mt-3 text-sm text-amber-500">
+                {selectedTerritory.poiSummary}
+              </div>
+            )}
+            {selectedTerritory.poiTags?.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {selectedTerritory.poiTags.map((tag: string) => (
+                  <span key={tag} className="px-2 py-1 rounded-full bg-muted/60 text-muted-foreground">{tag}</span>
+                ))}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end">
+              <Button onClick={() => setSelectedTerritory(null)}>Volver al mapa</Button>
             </div>
           </Card>
         </div>
