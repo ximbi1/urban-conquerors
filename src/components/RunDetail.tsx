@@ -8,6 +8,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { supabase } from '@/integrations/supabase/client';
 import { ShareConquest } from './ShareConquest';
 import { RunReplayModal } from './RunReplayModal';
+import { Navigation } from 'lucide-react';
+import { calculateDistance } from '@/utils/geoCalculations';
 
 interface RunDetailProps {
   run: Run;
@@ -21,6 +23,8 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
   const [showShare, setShowShare] = useState(false);
   const [showReplay, setShowReplay] = useState(false);
   const runPath = (run.path as Coordinate[]) || [];
+  const [splitMarkers, setSplitMarkers] = useState<mapboxgl.Marker[]>([]);
+  const [splits, setSplits] = useState<{ km: number; time: number; pace: number; coord: Coordinate }[]>([]);
 
   useEffect(() => {
     fetchMapboxToken();
@@ -93,6 +97,9 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
         },
       });
 
+      // Marcadores de splits
+      addSplitMarkers();
+
       // Marcador de inicio
       new mapboxgl.Marker({ color: '#22c55e' })
         .setLngLat([path[0].lng, path[0].lat])
@@ -110,6 +117,40 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
       path.forEach(p => bounds.extend([p.lng, p.lat]));
       map.current.fitBounds(bounds, { padding: 50 });
     });
+  };
+
+  const addSplitMarkers = () => {
+    if (!map.current || runPath.length < 2) return;
+    splitMarkers.forEach(m => m.remove());
+    const markers: mapboxgl.Marker[] = [];
+    const newSplits: { km: number; time: number; pace: number; coord: Coordinate }[] = [];
+    let accumDist = 0;
+    let accumTime = 0;
+    let kmCounter = 1;
+    for (let i = 1; i < runPath.length; i++) {
+      const segDist = calculateDistance(runPath[i - 1], runPath[i]);
+      accumDist += segDist;
+      const segTime = run.duration * (segDist / Math.max(run.distance, 1));
+      accumTime += segTime;
+      while (accumDist >= kmCounter * 1000 && run.distance > 0) {
+        const coord = runPath[i];
+        const pace = ((accumTime) / 60) / kmCounter;
+        newSplits.push({ km: kmCounter, time: accumTime, pace, coord });
+        const marker = new mapboxgl.Marker({ color: '#f59e0b' })
+          .setLngLat([coord.lng, coord.lat])
+          .setPopup(new mapboxgl.Popup().setHTML(`<strong>Km ${kmCounter}</strong>`))
+          .addTo(map.current!);
+        markers.push(marker);
+        kmCounter++;
+      }
+    }
+    setSplitMarkers(markers);
+    setSplits(newSplits);
+  };
+
+  const focusSplit = (split: { km: number; coord: Coordinate }) => {
+    if (!map.current) return;
+    map.current.easeTo({ center: [split.coord.lng, split.coord.lat], zoom: 15, duration: 800 });
   };
 
   const formatDate = (timestamp: number) => {
@@ -216,6 +257,24 @@ const RunDetail = ({ run, onClose }: RunDetailProps) => {
             <div className="text-xs text-muted-foreground">puntos</div>
           </Card>
         </div>
+
+        {/* Splits */}
+        {splits.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Navigation className="h-4 w-4" /> Parciales (km)
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {splits.map(split => (
+                <Card key={split.km} className="p-3 bg-muted/20 border-border/50 text-sm cursor-pointer hover:border-primary/50" onClick={() => focusSplit(split)}>
+                  <div className="font-semibold">Km {split.km}</div>
+                  <div className="text-muted-foreground text-xs">{formatDuration(Math.round(split.time))}</div>
+                  <div className="text-muted-foreground text-xs">{(split.pace).toFixed(2)} min/km</div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Territorios conquistados */}
         {(run.territoriesConquered > 0 || run.territoriesStolen > 0) && (

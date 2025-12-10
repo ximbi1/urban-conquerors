@@ -322,24 +322,6 @@ export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
                       </div>
                     )}
 
-                    {run.splits && run.splits.length > 0 && (
-                      <div className="mt-2">
-                        <div className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1">
-                          <Navigation className="h-3 w-3" /> Parciales (km)
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {run.splits.slice(0, 6).map((split: any) => (
-                            <div key={split.km} className="text-[11px] bg-muted/20 px-2 py-1 rounded border border-border/50">
-                              <div className="font-semibold">Km {split.km}</div>
-                              <div className="text-muted-foreground">{formatTime(Math.round(split.time))} · {formatPace(split.pace)} min/km</div>
-                            </div>
-                          ))}
-                          {run.splits.length > 6 && (
-                            <div className="text-[11px] text-muted-foreground">+{run.splits.length - 6} más…</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
                   </div>
                   
                   <Button variant="ghost" size="sm">
