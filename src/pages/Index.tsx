@@ -333,7 +333,10 @@ const Index = () => {
       )}
 
       <Header
-        onShowNotifications={() => setShowNotifications(true)}
+        onShowNotifications={() => {
+          setShowNotifications(true);
+          setActiveSection('home');
+        }}
       />
 
       <OfflineBanner 

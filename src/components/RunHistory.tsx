@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, MapPin, Trophy, Calendar, Filter, Search } from 'lucide-react';
+import { ArrowLeft, MapPin, Trophy, Calendar, Filter, Search, Navigation } from 'lucide-react';
 import { ContentSkeleton } from './ui/content-skeleton';
 import { EmptyState } from './ui/empty-state';
 import { Card } from './ui/card';
@@ -11,6 +11,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Run } from '@/types/territory';
 import RunDetail from './RunDetail';
+import { calculateDistance } from '@/utils/geoCalculations';
+import { Coordinate } from '@/types/territory';
 
 interface RunHistoryProps {
   onClose: () => void;
@@ -19,8 +21,9 @@ interface RunHistoryProps {
 
 export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
   const { user } = useAuth();
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [filteredRuns, setFilteredRuns] = useState<Run[]>([]);
+  type RunWithSplits = Run & { splits?: { km: number; time: number; pace: number }[] };
+  const [runs, setRuns] = useState<RunWithSplits[]>([]);
+  const [filteredRuns, setFilteredRuns] = useState<RunWithSplits[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,6 +40,27 @@ export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
   useEffect(() => {
     applyFilters();
   }, [runs, searchTerm, filterPeriod, filterDistance]);
+
+  const computeSplits = (path: Coordinate[], distance: number, duration: number) => {
+    if (!path || path.length < 2 || distance <= 0 || duration <= 0) return [];
+    const splits: { km: number; time: number; pace: number }[] = [];
+    let accumDist = 0;
+    let accumTime = 0;
+    let kmCounter = 1;
+    for (let i = 1; i < path.length; i++) {
+      const segDist = calculateDistance(path[i - 1], path[i]);
+      accumDist += segDist;
+      const segTime = duration * (segDist / Math.max(distance, 1));
+      accumTime += segTime;
+      while (accumDist >= kmCounter * 1000 && distance > 0) {
+        const overshoot = accumDist - kmCounter * 1000;
+        const pace = ((accumTime - overshoot * (duration / Math.max(distance, 1))) / 60);
+        splits.push({ km: kmCounter, time: accumTime, pace });
+        kmCounter++;
+      }
+    }
+    return splits;
+  };
 
   const loadRuns = async () => {
     if (!targetUserId) {
@@ -57,7 +81,7 @@ export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
       
       if (error) throw error;
       
-      const mappedRuns: Run[] = (data || []).map(run => ({
+      const mappedRuns: RunWithSplits[] = (data || []).map(run => ({
         id: run.id,
         userId: run.user_id,
         distance: run.distance,
@@ -69,6 +93,7 @@ export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
         territoriesLost: run.territories_lost,
         pointsGained: run.points_gained,
         timestamp: new Date(run.created_at).getTime(),
+        splits: [],
       }));
       
       setRuns(mappedRuns);
@@ -112,7 +137,28 @@ export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
       );
     }
 
-    setFilteredRuns(filtered);
+    setFilteredRuns(filtered.map(run => ({
+      ...run,
+      splits: computeSplits((run.path as Coordinate[]) || [], run.distance, run.duration),
+    })));
+  };
+
+  const formatDistance = (meters: number) => {
+    if (meters < 1000) return `${Math.round(meters)} m`;
+    return `${(meters / 1000).toFixed(2)} km`;
+  };
+
+  const formatTime = (seconds: number) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatPace = (pace: number) => {
+    const mins = Math.floor(pace);
+    const secs = Math.round((pace - mins) * 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const formatDate = (timestamp: number) => {
@@ -273,6 +319,25 @@ export const RunHistory = ({ onClose, userId }: RunHistoryProps) => {
                             {run.territoriesStolen} robados
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {run.splits && run.splits.length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1">
+                          <Navigation className="h-3 w-3" /> Parciales (km)
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {run.splits.slice(0, 6).map((split: any) => (
+                            <div key={split.km} className="text-[11px] bg-muted/20 px-2 py-1 rounded border border-border/50">
+                              <div className="font-semibold">Km {split.km}</div>
+                              <div className="text-muted-foreground">{formatTime(Math.round(split.time))} · {formatPace(split.pace)} min/km</div>
+                            </div>
+                          ))}
+                          {run.splits.length > 6 && (
+                            <div className="text-[11px] text-muted-foreground">+{run.splits.length - 6} más…</div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
