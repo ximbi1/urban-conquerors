@@ -870,42 +870,11 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       return;
     }
 
-    const isPointInPolygonLocal = (point: Coordinate, polygon: Coordinate[]) => {
-      let inside = false;
-      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-        const xi = polygon[i].lng;
-        const yi = polygon[i].lat;
-        const xj = polygon[j].lng;
-        const yj = polygon[j].lat;
-
-        const intersect = ((yi > point.lat) !== (yj > point.lat)) &&
-          (point.lng < ((xj - xi) * (point.lat - yi)) / Math.max(yj - yi, 1e-9) + xi);
-        if (intersect) inside = !inside;
-      }
-      return inside;
-    };
-
-    // Función para verificar si un polígono está completamente contenido en otro
-    const isPolygonFullyContained = (inner: Coordinate[], outer: Coordinate[]) => {
-      if (inner.length < 3 || outer.length < 3) return false;
-      return inner.every((point) => isPointInPolygonLocal(point, outer));
-    };
-
     const features = mapPois
       .filter(poi => poi.category === 'park' && poi.coordinates?.length)
       .map(poi => {
         const perimeter = calculatePerimeter(poi.coordinates);
         const area = calculatePolygonArea(poi.coordinates);
-        const bounds = new mapboxgl.LngLatBounds(
-          [poi.coordinates[0].lng, poi.coordinates[0].lat],
-          [poi.coordinates[0].lng, poi.coordinates[0].lat]
-        );
-        poi.coordinates.forEach(c => bounds.extend([c.lng, c.lat]));
-        const center = bounds.getCenter();
-        const centroid: Coordinate = { lat: center.lat, lng: center.lng };
-        
-        // Solo asignar propietario si el territorio contiene COMPLETAMENTE el parque
-        const ownerTerritory = territories.find(t => isPolygonFullyContained(poi.coordinates, t.coordinates));
 
         return {
           type: 'Feature' as const,
@@ -913,9 +882,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
             id: poi.id, 
             name: poi.name, 
             perimeter, 
-            area, 
-            centroid,
-            owner: ownerTerritory?.owner || null 
+            area
           },
           geometry: {
             type: 'Polygon' as const,
@@ -1590,12 +1557,10 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
                 <span className="text-muted-foreground">Perímetro</span>
                 <span className="font-semibold">{formatDistance(selectedPark.properties?.perimeter || 0)}</span>
               </div>
-              {selectedPark.properties?.owner && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Propietario actual</span>
-                  <span className="font-semibold">{selectedPark.properties.owner}</span>
-                </div>
-              )}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Estado</span>
+                <span className="font-semibold text-muted-foreground">Sin conquistar</span>
+              </div>
             </div>
             <div className="mt-4 text-xs text-muted-foreground">
               Rodea todo el perímetro del parque para conquistarlo. Los territorios dentro de este parque se etiquetarán automáticamente.
