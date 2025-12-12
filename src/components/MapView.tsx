@@ -873,8 +873,9 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       return;
     }
 
-    // Cargar conquistas de parques
+    // Cargar conquistas de parques (de la tabla + detectar parques dentro de territorios)
     const loadParkConquests = async () => {
+      // Primero cargar conquistas explícitas de la tabla park_conquests
       const { data } = await supabase
         .from('park_conquests')
         .select('park_id, profiles:user_id(username, color)');
@@ -888,6 +889,29 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
           });
         });
       }
+
+      // Ahora detectar parques que están DENTRO de territorios existentes
+      const parks = mapPois.filter(poi => poi.category === 'park' && poi.coordinates?.length >= 3);
+      
+      parks.forEach(park => {
+        // Si ya tiene conquista explícita, no sobrescribir
+        if (conquests.has(park.id)) return;
+        
+        // Buscar si el parque está contenido dentro de algún territorio
+        for (const territory of territories) {
+          if (!territory.coordinates?.length) continue;
+          
+          // Verificar si el parque está contenido en el territorio
+          if (isPolygonContained(park.coordinates, territory.coordinates)) {
+            conquests.set(park.id, {
+              owner: territory.owner || 'Usuario',
+              color: territory.color || '#22c55e'
+            });
+            break; // Ya encontramos el dueño, no seguir buscando
+          }
+        }
+      });
+
       setParkConquests(conquests);
       return conquests;
     };
@@ -1005,7 +1029,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
       map.current.on('click', 'parks-outline', handleParkClick);
       map.current.on('click', 'parks-highlight', handleParkClick);
     });
-  }, [showParks, mapPois]);
+  }, [showParks, mapPois, territories]);
 
   useEffect(() => {
     if (!mapReady || !map.current || !map.current.isStyleLoaded()) return;
