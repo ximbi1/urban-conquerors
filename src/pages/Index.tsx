@@ -46,6 +46,12 @@ const communityTabs = [
   { id: 'clans', label: 'Clanes' },
 ];
 
+type ZoneNavigation = {
+  coordinates: { lat: number; lng: number };
+  category?: 'park' | 'district';
+  id?: string;
+};
+
 // Loading fallback component
 const SectionLoader = memo(() => (
   <div className="p-4 space-y-4">
@@ -113,6 +119,26 @@ const Index = () => {
   const [viewUserProfileId, setViewUserProfileId] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState<boolean>(typeof navigator !== 'undefined' ? !navigator.onLine : false);
   const [mapTargetLocation, setMapTargetLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const mapFilterDefaults = {
+    showChallenges: true,
+    showParks: false,
+    showFountains: false,
+    showDistricts: false,
+  };
+  const [mapFilters, setMapFilters] = useState(() => {
+    if (typeof window === 'undefined') return mapFilterDefaults;
+    try {
+      const stored = localStorage.getItem('urbanz-map-filters');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return { ...mapFilterDefaults, ...parsed };
+      }
+    } catch (error) {
+      console.warn('No se pudieron leer los filtros del mapa', error);
+    }
+    return mapFilterDefaults;
+  });
+  const [highlightZone, setHighlightZone] = useState<{ category: 'park' | 'district'; id: string | null } | null>(null);
   const { pendingRunsCount, isSyncing: isOfflineSyncing, syncRuns } = useOfflineSync();
 
   const {
@@ -161,6 +187,15 @@ const Index = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('urbanz-map-filters', JSON.stringify(mapFilters));
+    } catch (error) {
+      console.warn('No se pudieron guardar los filtros del mapa', error);
+    }
+  }, [mapFilters]);
+
   const handleStopRun = useCallback(async () => {
     const result = await stopRun();
     if (result) {
@@ -202,8 +237,17 @@ const Index = () => {
     setShowSummary(false);
   }, []);
 
-  const handleNavigateToZone = useCallback((coordinates: { lat: number; lng: number }) => {
+  const handleNavigateToZone = useCallback(({ coordinates, category, id }: ZoneNavigation) => {
     setMapTargetLocation(coordinates);
+
+    if (category === 'park') {
+      setMapFilters(prev => ({ ...prev, showParks: true }));
+      setHighlightZone({ category: 'park', id: id ?? null });
+    } else if (category === 'district') {
+      setMapFilters(prev => ({ ...prev, showDistricts: true }));
+      setHighlightZone({ category: 'district', id: id ?? null });
+    }
+
     setActiveSection('home');
     // Clear target after a short delay to allow re-navigation to same location
     setTimeout(() => setMapTargetLocation(null), 2000);
@@ -255,6 +299,16 @@ const Index = () => {
               currentLocation={currentLocation}
               locationAccuracy={accuracy}
               targetLocation={mapTargetLocation}
+              showParks={mapFilters.showParks}
+              showFountains={mapFilters.showFountains}
+              showDistricts={mapFilters.showDistricts}
+              showChallenges={mapFilters.showChallenges}
+              onToggleParks={(value) => setMapFilters(prev => ({ ...prev, showParks: value }))}
+              onToggleFountains={(value) => setMapFilters(prev => ({ ...prev, showFountains: value }))}
+              onToggleDistricts={(value) => setMapFilters(prev => ({ ...prev, showDistricts: value }))}
+              onToggleChallenges={(value) => setMapFilters(prev => ({ ...prev, showChallenges: value }))}
+              highlightZone={highlightZone}
+              onHighlightConsumed={() => setHighlightZone(null)}
             />
             <RunPredictionOverlay
               runPath={runPath}
@@ -374,6 +428,16 @@ const Index = () => {
             currentLocation={currentLocation}
             locationAccuracy={accuracy}
             targetLocation={mapTargetLocation}
+            showParks={mapFilters.showParks}
+            showFountains={mapFilters.showFountains}
+            showDistricts={mapFilters.showDistricts}
+            showChallenges={mapFilters.showChallenges}
+            onToggleParks={(value) => setMapFilters(prev => ({ ...prev, showParks: value }))}
+            onToggleFountains={(value) => setMapFilters(prev => ({ ...prev, showFountains: value }))}
+            onToggleDistricts={(value) => setMapFilters(prev => ({ ...prev, showDistricts: value }))}
+            onToggleChallenges={(value) => setMapFilters(prev => ({ ...prev, showChallenges: value }))}
+            highlightZone={highlightZone}
+            onHighlightConsumed={() => setHighlightZone(null)}
           />
           <RunPredictionOverlay
             runPath={runPath}

@@ -9,7 +9,7 @@ import { Search, Filter, MapPin } from 'lucide-react';
 
 interface ZonesProps {
   onClose: () => void;
-  onNavigateToZone?: (coordinates: Coordinate) => void;
+  onNavigateToZone?: (payload: { coordinates: Coordinate; category: 'park' | 'district'; id: string }) => void;
   isMobileFullPage?: boolean;
 }
 
@@ -214,9 +214,9 @@ const Zones = ({ onClose, onNavigateToZone, isMobileFullPage = false }: ZonesPro
       });
   }, [pois, tab, territories, parkConquests, userLocation, searchQuery, ownerFilter]);
 
-  const handleNavigateToZone = (centroid: Coordinate) => {
+  const handleNavigateToZone = (zone: { coordinates: Coordinate; category: 'park' | 'district'; id: string }) => {
     if (onNavigateToZone) {
-      onNavigateToZone(centroid);
+      onNavigateToZone(zone);
     }
     onClose();
   };
@@ -313,7 +313,11 @@ const Zones = ({ onClose, onNavigateToZone, isMobileFullPage = false }: ZonesPro
                 <Button 
                   size="sm" 
                   variant="secondary" 
-                  onClick={() => handleNavigateToZone(row.centroid)}
+                  onClick={() => handleNavigateToZone({
+                    coordinates: row.centroid,
+                    category: row.category,
+                    id: row.id,
+                  })}
                   className="gap-1"
                 >
                   <MapPin className="h-3 w-3" />

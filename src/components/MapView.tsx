@@ -20,9 +20,36 @@ interface MapViewProps {
   currentLocation?: Coordinate | null;
   locationAccuracy?: number | null;
   targetLocation?: Coordinate | null;
+  showParks?: boolean;
+  showFountains?: boolean;
+  showDistricts?: boolean;
+  showChallenges?: boolean;
+  onToggleParks?: (value: boolean) => void;
+  onToggleFountains?: (value: boolean) => void;
+  onToggleDistricts?: (value: boolean) => void;
+  onToggleChallenges?: (value: boolean) => void;
+  highlightZone?: { category: 'park' | 'district'; id: string | null } | null;
+  onHighlightConsumed?: () => void;
 }
 
-const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccuracy, targetLocation }: MapViewProps) => {
+const MapView = ({
+  runPath,
+  onMapClick,
+  isRunning,
+  currentLocation,
+  locationAccuracy,
+  targetLocation,
+  showParks: showParksProp,
+  showFountains: showFountainsProp,
+  showDistricts: showDistrictsProp,
+  showChallenges: showChallengesProp,
+  onToggleParks,
+  onToggleFountains,
+  onToggleDistricts,
+  onToggleChallenges,
+  highlightZone,
+  onHighlightConsumed,
+}: MapViewProps) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapboxToken, setMapboxToken] = useState<string>('');
@@ -43,16 +70,24 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
   const [challengeTargets, setChallengeTargets] = useState<Set<string>>(new Set());
   const [targetLoading, setTargetLoading] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [showChallenges, setShowChallenges] = useState(true);
-  const [showParks, setShowParks] = useState(false);
-  const [showFountains, setShowFountains] = useState(false);
-  const [showDistricts, setShowDistricts] = useState(false);
+  const [localShowChallenges, setLocalShowChallenges] = useState(true);
+  const [localShowParks, setLocalShowParks] = useState(false);
+  const [localShowFountains, setLocalShowFountains] = useState(false);
+  const [localShowDistricts, setLocalShowDistricts] = useState(false);
   const [districtFeatures, setDistrictFeatures] = useState<any[]>([]);
   const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
   const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
   const [selectedTerritory, setSelectedTerritory] = useState<any>(null);
   const [parkFeatures, setParkFeatures] = useState<any[]>([]);
   const [parkConquests, setParkConquests] = useState<Map<string, { owner: string; color: string }>>(new Map());
+  const showChallenges = showChallengesProp ?? localShowChallenges;
+  const showParks = showParksProp ?? localShowParks;
+  const showFountains = showFountainsProp ?? localShowFountains;
+  const showDistricts = showDistrictsProp ?? localShowDistricts;
+  const setShowChallenges = onToggleChallenges ?? setLocalShowChallenges;
+  const setShowParks = onToggleParks ?? setLocalShowParks;
+  const setShowFountains = onToggleFountains ?? setLocalShowFountains;
+  const setShowDistricts = onToggleDistricts ?? setLocalShowDistricts;
   const selectedDistrict = useMemo(() => {
     if (!selectedDistrictId) return null;
     return districtFeatures.find((feature) => feature.properties?.id === selectedDistrictId) || null;
@@ -582,6 +617,24 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     };
     fetchTargets();
   }, [user]);
+
+  useEffect(() => {
+    if (!highlightZone) return;
+
+    if (highlightZone.category === 'park') {
+      setShowParks(true);
+      if (highlightZone.id) {
+        setSelectedParkId(highlightZone.id);
+      }
+    } else if (highlightZone.category === 'district') {
+      setShowDistricts(true);
+      if (highlightZone.id) {
+        setSelectedDistrictId(highlightZone.id);
+      }
+    }
+
+    onHighlightConsumed?.();
+  }, [highlightZone, onHighlightConsumed, setShowDistricts, setShowParks]);
 
   // Dibujar territorios en el mapa
   useEffect(() => {
@@ -1240,7 +1293,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     } else {
       map.current.setFilter('districts-highlight', ['==', ['get', 'id'], selectedDistrictId]);
     }
-  }, [selectedDistrictId, showDistricts]);
+  }, [selectedDistrictId, showDistricts, districtFeatures, mapReady]);
 
   // Update parks highlight filter when selectedParkId changes
   useEffect(() => {
@@ -1251,7 +1304,7 @@ const MapView = ({ runPath, onMapClick, isRunning, currentLocation, locationAccu
     } else {
       map.current.setFilter('parks-highlight', ['==', ['get', 'id'], selectedParkId]);
     }
-  }, [selectedParkId, showParks]);
+  }, [selectedParkId, showParks, parkFeatures, mapReady]);
 
   const formatDuration = (milliseconds: number) => {
     const totalMinutes = Math.floor(milliseconds / (60 * 1000));
