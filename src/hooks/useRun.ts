@@ -25,6 +25,8 @@ import { toast } from 'sonner';
 import { useAchievements } from './useAchievements';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 import { startRunTrackingService, stopRunTrackingService } from '@/lib/runTracking';
+import { updateActiveDuels } from './run/runGamification';
+import { extractLoops } from './run/runLoops';
 
 export const useRun = () => {
   const [isRunning, setIsRunning] = useState(false);
@@ -87,57 +89,6 @@ export const useRun = () => {
     if (!isAndroid) return;
     stopRunTrackingService();
   }, [isAndroid]);
-
-  const updateActiveDuels = async (
-    distanceValue: number,
-    pointsValue: number,
-    territoriesValue: number
-  ) => {
-    if (!user) return;
-    try {
-      const { data: activeDuels } = await supabase
-        .from('duels')
-        .select('*')
-        .eq('status', 'active')
-        .or(`challenger_id.eq.${user.id},opponent_id.eq.${user.id}`);
-
-      if (!activeDuels) return;
-
-      for (const duel of activeDuels as any[]) {
-        const isChallenger = duel.challenger_id === user.id;
-        let increment = 0;
-
-        if (duel.duel_type === 'distance') increment = Math.round(distanceValue);
-        else if (duel.duel_type === 'points') increment = pointsValue;
-        else if (duel.duel_type === 'territories') increment = territoriesValue;
-
-        if (increment <= 0) continue;
-
-        const progressField = isChallenger ? 'challenger_progress' : 'opponent_progress';
-        const currentProgress = duel[progressField] || 0;
-        const newProgress = currentProgress + increment;
-        const updates: Record<string, any> = { [progressField]: newProgress };
-        let completed = false;
-
-        if (newProgress >= duel.target_value) {
-          updates.status = 'completed';
-          updates.winner_id = user.id;
-          completed = true;
-        }
-
-        await supabase
-          .from('duels')
-          .update(updates)
-          .eq('id', duel.id);
-
-        if (completed) {
-          toast.success('🏁 ¡Has ganado un duelo!');
-        }
-      }
-    } catch (error) {
-      console.error('Error actualizando duelos', error);
-    }
-  };
 
   const handleGPSPosition = useCallback((position: GeolocationPosition) => {
     const accuracy = position.coords.accuracy;
@@ -345,54 +296,6 @@ export const useRun = () => {
     // Suavizar ruta antes de procesar
     const normalizedPath = limitPathPoints(smoothPath(runPath), 400);
     const smoothedDistance = calculatePathDistance(normalizedPath);
-
-    // Función para partir la ruta en bucles cerrados
-    const extractLoops = (path: Coordinate[]): Coordinate[][] => {
-      const loops: Coordinate[][] = [];
-      let startIndex = 0;
-      const CLOSE_THRESHOLD = 40; // metros
-
-      for (let i = 1; i < path.length; i++) {
-        const dist = calculatePathDistance([path[startIndex], path[i]]);
-        if (dist <= CLOSE_THRESHOLD && i - startIndex >= 3) {
-          const loop = path.slice(startIndex, i + 1);
-          const first = loop[0];
-          const last = loop[loop.length - 1];
-          if (first.lat !== last.lat || first.lng !== last.lng) {
-            loop.push({ ...first });
-          }
-          loops.push(loop);
-          startIndex = i;
-        }
-      }
-
-      // Si no hubo bucles, devolver la ruta completa cerrada implícitamente
-      if (loops.length === 0) {
-        const loop = [...path];
-        const first = loop[0];
-        const last = loop[loop.length - 1];
-        if (first && last && (first.lat !== last.lat || first.lng !== last.lng)) {
-          loop.push({ ...first });
-        }
-        if (loop.length >= 4) loops.push(loop);
-        return loops;
-      }
-
-      // Si quedan puntos al final y forman un bucle, incluirlos
-      if (startIndex < path.length - 3) {
-        const tail = path.slice(startIndex);
-        const firstTail = tail[0];
-        const lastTail = tail[tail.length - 1];
-        if (firstTail && lastTail && (firstTail.lat !== lastTail.lat || firstTail.lng !== lastTail.lng)) {
-          tail.push({ ...firstTail });
-        }
-        if (tail.length >= 4) {
-          loops.push(tail);
-        }
-      }
-
-      return loops;
-    };
 
     const loops = extractLoops(normalizedPath);
 
@@ -659,7 +562,9 @@ export const useRun = () => {
       console.error('Error actualizando desafíos:', error);
     }
 
-    await updateActiveDuels(smoothedDistance, pointsGained, conquered + stolen);
+    if (user) {
+      await updateActiveDuels(user.id, smoothedDistance, pointsGained, conquered + stolen);
+    }
 
     toast.success('¡Carrera guardada exitosamente!', { id: 'saving-run' });
     setIsSaving(false);

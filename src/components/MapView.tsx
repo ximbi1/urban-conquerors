@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import type { FeatureCollection } from 'geojson';
 import { Coordinate, Territory, MapChallenge, MapPoi } from '@/types/territory';
 import { calculatePolygonArea, calculatePerimeter } from '@/utils/geoCalculations';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { Locate, Users, User, Globe, X, SlidersHorizontal } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Locate, X } from 'lucide-react';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 import { ContentSkeleton } from './ui/content-skeleton';
+import { MapFilters } from './map/MapFilters';
 
 interface MapViewProps {
   runPath: Coordinate[];
@@ -80,6 +81,13 @@ const MapView = ({
   const [selectedTerritory, setSelectedTerritory] = useState<any>(null);
   const [parkFeatures, setParkFeatures] = useState<any[]>([]);
   const [parkConquests, setParkConquests] = useState<Map<string, { owner: string; color: string }>>(new Map());
+  const [viewportBounds, setViewportBounds] = useState<{
+    minLat: number;
+    maxLat: number;
+    minLng: number;
+    maxLng: number;
+  } | null>(null);
+  const territoryRefreshTimeout = useRef<number | null>(null);
   const showChallenges = showChallengesProp ?? localShowChallenges;
   const showParks = showParksProp ?? localShowParks;
   const showFountains = showFountainsProp ?? localShowFountains;
@@ -96,6 +104,96 @@ const MapView = ({
     if (!selectedParkId) return null;
     return parkFeatures.find((feature) => feature.properties?.id === selectedParkId) || null;
   }, [parkFeatures, selectedParkId]);
+  const visiblePois = useMemo(() => {
+    if (!viewportBounds) return mapPois;
+    return mapPois.filter((poi) =>
+      poi.coordinates?.some(
+        (coord) =>
+          coord.lat >= viewportBounds.minLat &&
+          coord.lat <= viewportBounds.maxLat &&
+          coord.lng >= viewportBounds.minLng &&
+          coord.lng <= viewportBounds.maxLng
+      )
+    );
+  }, [mapPois, viewportBounds]);
+  const territoryFeatures = useMemo(() => {
+    if (!territories.length) return [];
+
+    const filteredTerritories = territories.filter((territory: Territory, index: number) => {
+      if (territoryFilter === 'mine' && territory.userId !== user?.id) return false;
+      if (territoryFilter === 'friends' && (!territory.userId || !friendIds.has(territory.userId))) return false;
+
+      if (!territory.userId) return true;
+      const containsAnother = territories.some((other, otherIndex) => {
+        if (index === otherIndex) return false;
+        if (other.userId !== territory.userId) return false;
+        if (!other.coordinates?.length || !territory.coordinates?.length) return false;
+        if ((other.area || 0) < (territory.area || 0)) return false;
+        return isPolygonContained(territory.coordinates, other.coordinates);
+      });
+
+      if (containsAnother) return false;
+      return true;
+    });
+
+    return filteredTerritories.map((territory: Territory) => {
+      const isFriend = territory.userId ? friendIds.has(territory.userId) : false;
+      const isOwn = user?.id === territory.userId;
+      const protectedUntil = territory.protectedUntil ? new Date(territory.protectedUntil) : null;
+      const cooldownUntil = territory.cooldownUntil ? new Date(territory.cooldownUntil) : null;
+      const shieldUntil = territory.shieldExpires ? new Date(territory.shieldExpires) : null;
+      const now = new Date();
+      const protectionRemaining = protectedUntil && protectedUntil > now
+        ? Math.max(0, protectedUntil.getTime() - now.getTime())
+        : null;
+      const cooldownRemaining = cooldownUntil && cooldownUntil > now
+        ? Math.max(0, cooldownUntil.getTime() - now.getTime())
+        : null;
+      const shieldRemaining = shieldUntil && shieldUntil > now
+        ? Math.max(0, shieldUntil.getTime() - now.getTime())
+        : null;
+      const shieldLabel = shieldRemaining
+        ? `Escudo ${formatDuration(shieldRemaining)}`
+        : null;
+      const status = shieldRemaining ? 'protected' : (territory.status || 'idle');
+
+      return {
+        type: 'Feature' as const,
+        properties: {
+          color: territory.color,
+          owner: territory.owner,
+          area: Math.round(territory.area),
+          perimeter: territory.perimeter || calculatePerimeter(territory.coordinates),
+          id: territory.id,
+          avgPace: territory.avgPace.toFixed(2),
+          timestamp: new Date(territory.timestamp).toLocaleDateString('es-ES', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+          }),
+          isFriend: isFriend && !isOwn,
+          isOwn,
+          status,
+          protectedLabel: protectionRemaining
+            ? `Protegido ${formatDuration(protectionRemaining)}`
+            : null,
+          cooldownLabel: cooldownRemaining
+            ? `Cooldown ${formatDuration(cooldownRemaining)}`
+            : null,
+          poiSummary: territory.poiSummary || null,
+          hasShield: Boolean(shieldRemaining),
+          shieldLabel,
+          poiTags: territory.tags || [],
+        },
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            territory.coordinates.map(coord => [coord.lng, coord.lat]),
+          ],
+        },
+      };
+    });
+  }, [territories, territoryFilter, friendIds, user]);
   const { user } = useAuth();
   const { settings: playerSettings, loading: settingsLoading } = usePlayerSettings();
   const [explorerRoutes, setExplorerRoutes] = useState<{ id: string; path: Coordinate[]; created_at?: string | null }[]>([]);
@@ -213,6 +311,25 @@ const MapView = ({
       map.current?.remove();
     };
   }, [mapboxToken, isRunning, onMapClick]);
+
+  useEffect(() => {
+    if (!map.current || !mapReady) return;
+    const updateBounds = () => {
+      if (!map.current) return;
+      const bounds = map.current.getBounds();
+      setViewportBounds({
+        minLat: bounds.getSouth(),
+        maxLat: bounds.getNorth(),
+        minLng: bounds.getWest(),
+        maxLng: bounds.getEast(),
+      });
+    };
+    updateBounds();
+    map.current.on('moveend', updateBounds);
+    return () => {
+      map.current?.off('moveend', updateBounds);
+    };
+  }, [mapReady]);
 
   // Mostrar ubicación del usuario en tiempo real
   useEffect(() => {
@@ -379,6 +496,14 @@ const MapView = ({
     }
   }, [playerSettings]);
 
+  const scheduleTerritoriesRefresh = useCallback(() => {
+    if (territoryRefreshTimeout.current) return;
+    territoryRefreshTimeout.current = window.setTimeout(() => {
+      loadTerritories();
+      territoryRefreshTimeout.current = null;
+    }, 400);
+  }, [loadTerritories]);
+
   useEffect(() => {
     if (settingsLoading) return;
     if (playerSettings?.explorerMode) {
@@ -440,7 +565,7 @@ const MapView = ({
             }, 500);
           }
           
-          loadTerritories();
+          scheduleTerritoriesRefresh();
         }
       )
       .on(
@@ -475,7 +600,7 @@ const MapView = ({
               });
             }
           }
-          loadTerritories();
+          scheduleTerritoriesRefresh();
         }
       )
       .on(
@@ -488,15 +613,19 @@ const MapView = ({
         },
         () => {
           if (playerSettings?.explorerMode) return;
-          loadTerritories();
+          scheduleTerritoriesRefresh();
         }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      if (territoryRefreshTimeout.current) {
+        clearTimeout(territoryRefreshTimeout.current);
+        territoryRefreshTimeout.current = null;
+      }
     };
-  }, [playerSettings, settingsLoading, loadTerritories, loadExplorerRoutes, user]);
+  }, [playerSettings, settingsLoading, loadTerritories, loadExplorerRoutes, user, scheduleTerritoriesRefresh]);
 
   useEffect(() => {
     if (!map.current) return;
@@ -579,7 +708,7 @@ const MapView = ({
   }, []);
 
   useEffect(() => {
-    const districts = mapPois
+    const districts = visiblePois
       .filter(poi => poi.category === 'district' && poi.coordinates.length >= 3)
       .map(poi => {
         const area = calculatePolygonArea(poi.coordinates);
@@ -599,7 +728,7 @@ const MapView = ({
         };
       });
     setDistrictFeatures(districts);
-  }, [mapPois]);
+  }, [visiblePois]);
 
   useEffect(() => {
     if (!user) {
@@ -640,111 +769,22 @@ const MapView = ({
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
 
-    // Limpiar layers y sources previos
-    if (map.current.getLayer('territories-fill')) {
-      map.current.removeLayer('territories-fill');
-    }
-    if (map.current.getLayer('territories-outline')) {
-      map.current.removeLayer('territories-outline');
-    }
-    if (map.current.getLayer('territories-shield-glow')) {
-      map.current.removeLayer('territories-shield-glow');
-    }
-    if (map.current.getLayer('territories-shield-outline')) {
-      map.current.removeLayer('territories-shield-outline');
-    }
-    if (map.current.getLayer('territories-shield-label')) {
-      map.current.removeLayer('territories-shield-label');
-    }
-    if (map.current.getSource('territories')) {
-      map.current.removeSource('territories');
-    }
+    const source = map.current.getSource('territories') as mapboxgl.GeoJSONSource | undefined;
+    const data: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: territoryFeatures as any,
+    };
 
-    if (territories.length > 0) {
-      // Filtrar territorios según el filtro seleccionado y evitar duplicar polígonos contenidos del mismo usuario
-      const filteredTerritories = territories.filter((territory: Territory, index: number) => {
-        if (territoryFilter === 'mine' && territory.userId !== user?.id) return false;
-        if (territoryFilter === 'friends' && (!territory.userId || !friendIds.has(territory.userId))) return false;
-
-        if (!territory.userId) return true;
-        const containsAnother = territories.some((other, otherIndex) => {
-          if (index === otherIndex) return false;
-          if (other.userId !== territory.userId) return false;
-          if (!other.coordinates?.length || !territory.coordinates?.length) return false;
-          if ((other.area || 0) < (territory.area || 0)) return false;
-          return isPolygonContained(territory.coordinates, other.coordinates);
-        });
-
-        if (containsAnother) return false;
-        return true;
-      });
-
-      const features = filteredTerritories.map((territory: Territory) => {
-        const isFriend = territory.userId ? friendIds.has(territory.userId) : false;
-        const isOwn = user?.id === territory.userId;
-        const protectedUntil = territory.protectedUntil ? new Date(territory.protectedUntil) : null;
-        const cooldownUntil = territory.cooldownUntil ? new Date(territory.cooldownUntil) : null;
-        const shieldUntil = territory.shieldExpires ? new Date(territory.shieldExpires) : null;
-        const now = new Date();
-        const protectionRemaining = protectedUntil && protectedUntil > now
-          ? Math.max(0, protectedUntil.getTime() - now.getTime())
-          : null;
-        const cooldownRemaining = cooldownUntil && cooldownUntil > now
-          ? Math.max(0, cooldownUntil.getTime() - now.getTime())
-          : null;
-        const shieldRemaining = shieldUntil && shieldUntil > now
-          ? Math.max(0, shieldUntil.getTime() - now.getTime())
-          : null;
-        const shieldLabel = shieldRemaining
-          ? `Escudo ${formatDuration(shieldRemaining)}`
-          : null;
-        const status = shieldRemaining ? 'protected' : (territory.status || 'idle');
-
-        return {
-          type: 'Feature' as const,
-          properties: {
-            color: territory.color,
-            owner: territory.owner,
-            area: Math.round(territory.area),
-            perimeter: territory.perimeter || calculatePerimeter(territory.coordinates),
-            id: territory.id,
-            avgPace: territory.avgPace.toFixed(2),
-            timestamp: new Date(territory.timestamp).toLocaleDateString('es-ES', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-            }),
-            isFriend: isFriend && !isOwn,
-            isOwn,
-            status,
-            protectedLabel: protectionRemaining
-              ? `Protegido ${formatDuration(protectionRemaining)}`
-              : null,
-            cooldownLabel: cooldownRemaining
-              ? `Cooldown ${formatDuration(cooldownRemaining)}`
-              : null,
-            poiSummary: territory.poiSummary || null,
-            hasShield: Boolean(shieldRemaining),
-            shieldLabel,
-            poiTags: territory.tags || [],
-          },
-          geometry: {
-            type: 'Polygon' as const,
-            coordinates: [
-              territory.coordinates.map(coord => [coord.lng, coord.lat]),
-            ],
-          },
-        };
-      });
-
+    if (!source) {
       map.current.addSource('territories', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features,
-        },
+        data,
       });
+    } else {
+      source.setData(data);
+    }
 
+    if (!map.current.getLayer('territories-fill')) {
       map.current.addLayer({
         id: 'territories-fill',
         type: 'fill',
@@ -754,7 +794,9 @@ const MapView = ({
           'fill-opacity': 0.4,
         },
       });
+    }
 
+    if (!map.current.getLayer('territories-outline')) {
       map.current.addLayer({
         id: 'territories-outline',
         type: 'line',
@@ -774,7 +816,9 @@ const MapView = ({
           ],
         },
       });
+    }
 
+    if (!map.current.getLayer('territories-shield-glow')) {
       map.current.addLayer({
         id: 'territories-shield-glow',
         type: 'line',
@@ -787,7 +831,9 @@ const MapView = ({
           'line-blur': 2,
         },
       });
+    }
 
+    if (!map.current.getLayer('territories-shield-outline')) {
       map.current.addLayer({
         id: 'territories-shield-outline',
         type: 'line',
@@ -798,7 +844,9 @@ const MapView = ({
           'line-width': 3,
         },
       });
+    }
 
+    if (!map.current.getLayer('territories-shield-label')) {
       map.current.addLayer({
         id: 'territories-shield-label',
         type: 'symbol',
@@ -816,55 +864,54 @@ const MapView = ({
           'text-halo-width': 1.5,
         },
       });
+    }
 
-      // Selección para mostrar panel detallado
-      const popupHandler = (e: mapboxgl.MapMouseEvent) => {
-        if (!e.features || !e.features[0]) return;
-        const props: any = e.features[0].properties;
-        const normalizeTags = (raw: any): string[] => {
-          if (!raw) return [];
-          let arr: any = raw;
-          if (typeof raw === 'string') {
-            try {
-              arr = JSON.parse(raw);
-            } catch {
-              arr = [raw];
-            }
+    const popupHandler = (e: mapboxgl.MapMouseEvent) => {
+      if (!e.features || !e.features[0]) return;
+      const props: any = e.features[0].properties;
+      const normalizeTags = (raw: any): string[] => {
+        if (!raw) return [];
+        let arr: any = raw;
+        if (typeof raw === 'string') {
+          try {
+            arr = JSON.parse(raw);
+          } catch {
+            arr = [raw];
           }
-          if (!Array.isArray(arr)) arr = [arr];
-          return arr.map((t: any) => {
-            if (typeof t === 'string') return t;
-            if (t && typeof t === 'object') return t.name || t.type || JSON.stringify(t);
-            return String(t);
-          });
-        };
-        const parsedPoiTags = normalizeTags(props.poiTags);
-        const safePoiSummary = typeof props.poiSummary === 'string' ? props.poiSummary : (props.poiSummary ? JSON.stringify(props.poiSummary) : null);
-        setSelectedTerritory({
-          owner: props.owner,
-          area: Number(props.area) || 0,
-          perimeter: Number(props.perimeter) || 0,
-          avgPace: props.avgPace,
-          timestamp: props.timestamp,
-          status: props.status,
-          protectedLabel: props.protectedLabel || null,
-          cooldownLabel: props.cooldownLabel || null,
-          shieldLabel: props.shieldLabel || null,
-          poiSummary: safePoiSummary,
-          poiTags: parsedPoiTags,
-          color: props.color,
+        }
+        if (!Array.isArray(arr)) arr = [arr];
+        return arr.map((t: any) => {
+          if (typeof t === 'string') return t;
+          if (t && typeof t === 'object') return t.name || t.type || JSON.stringify(t);
+          return String(t);
         });
       };
+      const parsedPoiTags = normalizeTags(props.poiTags);
+      const safePoiSummary = typeof props.poiSummary === 'string' ? props.poiSummary : (props.poiSummary ? JSON.stringify(props.poiSummary) : null);
+      setSelectedTerritory({
+        owner: props.owner,
+        area: Number(props.area) || 0,
+        perimeter: Number(props.perimeter) || 0,
+        avgPace: props.avgPace,
+        timestamp: props.timestamp,
+        status: props.status,
+        protectedLabel: props.protectedLabel || null,
+        cooldownLabel: props.cooldownLabel || null,
+        shieldLabel: props.shieldLabel || null,
+        poiSummary: safePoiSummary,
+        poiTags: parsedPoiTags,
+        color: props.color,
+      });
+    };
 
-      map.current.on('click', 'territories-fill', popupHandler);
+    map.current.on('click', 'territories-fill', popupHandler);
 
-      return () => {
-        if (map.current) {
-          map.current.off('click', 'territories-fill', popupHandler);
-        }
-      };
-    }
-  }, [territories, friendIds, user, territoryFilter]);
+    return () => {
+      if (map.current) {
+        map.current.off('click', 'territories-fill', popupHandler);
+      }
+    };
+  }, [territoryFeatures, mapReady]);
 
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
@@ -944,7 +991,7 @@ const MapView = ({
       }
 
       // Ahora detectar parques que están DENTRO de territorios existentes (usando el centro del parque)
-      const parks = mapPois.filter(poi => poi.category === 'park' && poi.coordinates?.length >= 3);
+      const parks = visiblePois.filter(poi => poi.category === 'park' && poi.coordinates?.length >= 3);
       
       parks.forEach(park => {
         // Si ya tiene conquista explícita, no sobrescribir
@@ -973,7 +1020,7 @@ const MapView = ({
     loadParkConquests().then((conquests) => {
       if (!map.current) return;
 
-      const features = mapPois
+      const features = visiblePois
         .filter(poi => poi.category === 'park' && poi.coordinates?.length)
         .map(poi => {
           const perimeter = calculatePerimeter(poi.coordinates);
@@ -1083,7 +1130,7 @@ const MapView = ({
       map.current.on('click', 'parks-outline', handleParkClick);
       map.current.on('click', 'parks-highlight', handleParkClick);
     });
-  }, [showParks, mapPois, territories]);
+  }, [showParks, visiblePois, territories]);
 
   useEffect(() => {
     if (!mapReady || !map.current || !map.current.isStyleLoaded()) return;
@@ -1145,7 +1192,7 @@ const MapView = ({
       district: '🗺️',
     };
     
-    mapPois.forEach(poi => {
+    visiblePois.forEach(poi => {
       // Los parques NO se muestran como marcadores - usan polígonos
       if (poi.category === 'park') return;
       // Solo mostrar fuentes si el filtro está activado
@@ -1197,7 +1244,7 @@ const MapView = ({
 
       poiMarkersRef.current.push(marker);
     });
-  }, [mapPois, mapReady, showFountains, showDistricts]);
+  }, [visiblePois, mapReady, showFountains, showDistricts]);
 
   useEffect(() => {
     if (!showDistricts) {
@@ -1497,65 +1544,22 @@ const MapView = ({
       {/* Filtros */}
       {!playerSettings?.explorerMode && (
         <div
-          className={`absolute top-4 left-4 z-20 flex flex-col gap-2 transition-opacity duration-200 ${overlayActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+          className={`absolute top-4 left-4 z-20 transition-opacity duration-200 ${overlayActive ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
         >
-        <Button
-          variant="secondary"
-          size="sm"
-          className="shadow-lg"
-          onClick={() => setShowFilterPanel((prev) => !prev)}
-        >
-          <SlidersHorizontal className="w-4 h-4 mr-2" />
-          {showFilterPanel ? 'Ocultar filtros' : 'Filtros'}
-        </Button>
-        {showFilterPanel && (
-          <Card className="w-64 p-3 space-y-3 border-glow bg-background/95">
-            <div>
-              <p className="text-xs uppercase text-muted-foreground mb-2">Territorios</p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => setTerritoryFilter('all')}
-                  variant={territoryFilter === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  <Globe className="w-4 h-4 mr-1" /> Todos
-                </Button>
-                <Button
-                  onClick={() => setTerritoryFilter('mine')}
-                  variant={territoryFilter === 'mine' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  <User className="w-4 h-4 mr-1" /> Míos
-                </Button>
-                <Button
-                  onClick={() => setTerritoryFilter('friends')}
-                  variant={territoryFilter === 'friends' ? 'default' : 'outline'}
-                  size="sm"
-                >
-                  <Users className="w-4 h-4 mr-1" /> Amigos
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Pines de retos</span>
-                <Switch checked={showChallenges} onCheckedChange={setShowChallenges} />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Parques</span>
-                <Switch checked={showParks} onCheckedChange={setShowParks} />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Fuentes</span>
-                <Switch checked={showFountains} onCheckedChange={setShowFountains} />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Barrios</span>
-                <Switch checked={showDistricts} onCheckedChange={setShowDistricts} />
-              </div>
-            </div>
-          </Card>
-        )}
+          <MapFilters
+            open={showFilterPanel}
+            onTogglePanel={() => setShowFilterPanel((prev) => !prev)}
+            territoryFilter={territoryFilter}
+            onTerritoryFilterChange={setTerritoryFilter}
+            showChallenges={showChallenges}
+            showParks={showParks}
+            showFountains={showFountains}
+            showDistricts={showDistricts}
+            onToggleChallenges={setShowChallenges}
+            onToggleParks={setShowParks}
+            onToggleFountains={setShowFountains}
+            onToggleDistricts={setShowDistricts}
+          />
         </div>
       )}
       
