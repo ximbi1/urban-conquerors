@@ -51,6 +51,7 @@ const MapView = ({
   highlightZone,
   onHighlightConsumed,
 }: MapViewProps) => {
+  const { user } = useAuth();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [mapboxToken, setMapboxToken] = useState<string>('');
@@ -194,7 +195,6 @@ const MapView = ({
       };
     });
   }, [territories, territoryFilter, friendIds, user]);
-  const { user } = useAuth();
   const { settings: playerSettings, loading: settingsLoading } = usePlayerSettings();
   const [explorerRoutes, setExplorerRoutes] = useState<{ id: string; path: Coordinate[]; created_at?: string | null }[]>([]);
 
