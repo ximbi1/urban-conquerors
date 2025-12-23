@@ -7,6 +7,8 @@ import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ContentSkeleton } from '@/components/ui/content-skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -931,7 +933,13 @@ const Clans = ({ onClose, isMobileFullPage = false }: ClansProps) => {
         progress={progress}
       />
 
-      {membership ? renderMemberView() : renderNonMemberView()}
+      {loading ? (
+        <ContentSkeleton type="clans" />
+      ) : membership ? (
+        renderMemberView()
+      ) : (
+        renderNonMemberView()
+      )}
     </>
   );
   if (isMobileFullPage) {

@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { Skeleton } from './skeleton';
 
-type SkeletonType = 'runs' | 'notifications' | 'friends' | 'ranking' | 'achievements' | 'challenges' | 'profile' | 'map';
+type SkeletonType = 'runs' | 'notifications' | 'friends' | 'ranking' | 'achievements' | 'challenges' | 'profile' | 'map' | 'zones' | 'clans';
 
 interface ContentSkeletonProps {
   type: SkeletonType;
@@ -143,6 +143,62 @@ const MapSkeleton = () => (
   </div>
 );
 
+const ZoneSkeleton = () => (
+  <div className="p-3 rounded-lg border border-border bg-card space-y-2">
+    <div className="flex items-start justify-between gap-2">
+      <div className="flex-1 space-y-2">
+        <Skeleton className="h-5 w-40" />
+        <div className="flex gap-3">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+      </div>
+      <Skeleton className="h-6 w-16 rounded-full" />
+    </div>
+    <div className="flex justify-end">
+      <Skeleton className="h-8 w-28 rounded" />
+    </div>
+  </div>
+);
+
+const ClanSkeleton = () => (
+  <div className="space-y-4">
+    {/* Header */}
+    <div className="p-5 rounded-lg border border-border bg-gradient-to-br from-primary/10 via-background to-background">
+      <div className="flex items-center gap-4">
+        <Skeleton className="h-14 w-14 rounded-full" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="p-3 rounded-lg bg-muted/30 space-y-1">
+          <Skeleton className="h-5 w-12" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+        <div className="p-3 rounded-lg bg-muted/30 space-y-1">
+          <Skeleton className="h-5 w-12" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      </div>
+    </div>
+    {/* Missions */}
+    <div className="p-4 rounded-lg border border-border space-y-3">
+      <Skeleton className="h-5 w-32" />
+      {[...Array(2)].map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <Skeleton className="h-8 w-8 rounded-full" />
+          <div className="flex-1 space-y-1">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-2 w-full rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 const skeletonComponents: Record<SkeletonType, React.FC> = {
   runs: RunCardSkeleton,
   notifications: NotificationSkeleton,
@@ -152,13 +208,15 @@ const skeletonComponents: Record<SkeletonType, React.FC> = {
   challenges: ChallengeSkeleton,
   profile: ProfileSkeleton,
   map: MapSkeleton,
+  zones: ZoneSkeleton,
+  clans: ClanSkeleton,
 };
 
 export const ContentSkeleton = ({ type, count = 3, className }: ContentSkeletonProps) => {
   const SkeletonComponent = skeletonComponents[type];
   
-  // Special case for single components like profile and map
-  if (type === 'profile' || type === 'map') {
+  // Special case for single components like profile, map, and clans
+  if (type === 'profile' || type === 'map' || type === 'clans') {
     return (
       <div className={cn('animate-in fade-in duration-300', className)}>
         <SkeletonComponent />
