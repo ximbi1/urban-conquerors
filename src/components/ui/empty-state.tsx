@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils';
-import { MapPin, Users, Bell, Calendar, Trophy, Target, Swords } from 'lucide-react';
+import { MapPin, Users, Bell, Calendar, Trophy, Target, Swords, Trees, Shield, Activity } from 'lucide-react';
 import { Button } from './button';
 
-type EmptyStateType = 'runs' | 'territories' | 'friends' | 'notifications' | 'challenges' | 'achievements' | 'duels';
+type EmptyStateType = 'runs' | 'territories' | 'friends' | 'notifications' | 'challenges' | 'achievements' | 'duels' | 'zones' | 'clans' | 'activity';
 
 interface EmptyStateProps {
   type: EmptyStateType;
@@ -70,6 +70,27 @@ const emptyStateConfig: Record<EmptyStateType, {
     defaultDescription: 'Reta a tus amigos a duelos 1v1 para ver quién es el mejor.',
     iconColor: 'text-destructive',
     bgGradient: 'from-destructive/20 via-destructive/5 to-transparent',
+  },
+  zones: {
+    icon: Trees,
+    defaultTitle: 'Sin zonas encontradas',
+    defaultDescription: 'No hay parques o barrios que coincidan con tu búsqueda.',
+    iconColor: 'text-emerald-500',
+    bgGradient: 'from-emerald-500/20 via-emerald-500/5 to-transparent',
+  },
+  clans: {
+    icon: Shield,
+    defaultTitle: 'Sin clan',
+    defaultDescription: 'Únete a un clan existente o crea el tuyo para competir en grupo.',
+    iconColor: 'text-primary',
+    bgGradient: 'from-primary/20 via-primary/5 to-transparent',
+  },
+  activity: {
+    icon: Activity,
+    defaultTitle: 'Sin actividad reciente',
+    defaultDescription: 'Aquí verás las carreras de tus amigos y compañeros cercanos.',
+    iconColor: 'text-secondary',
+    bgGradient: 'from-secondary/20 via-secondary/5 to-transparent',
   },
 };
 

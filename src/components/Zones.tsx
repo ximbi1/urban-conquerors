@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ContentSkeleton } from '@/components/ui/content-skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/integrations/supabase/client';
 import { Coordinate } from '@/types/territory';
 import { calculatePerimeter } from '@/utils/geoCalculations';
@@ -280,11 +282,17 @@ const Zones = ({ onClose, onNavigateToZone, isMobileFullPage = false }: ZonesPro
       </div>
 
       {loading ? (
-        <div className="text-muted-foreground text-sm">Cargando zonas...</div>
+        <ContentSkeleton type="zones" count={5} />
       ) : rows.length === 0 ? (
-        <div className="text-muted-foreground text-sm py-8 text-center">
-          No se encontraron {tab === 'parks' ? 'parques' : 'barrios'} con los filtros seleccionados.
-        </div>
+        <EmptyState 
+          type="zones" 
+          title={searchQuery ? 'Sin resultados' : `Sin ${tab === 'parks' ? 'parques' : 'barrios'}`}
+          description={searchQuery 
+            ? `No se encontraron ${tab === 'parks' ? 'parques' : 'barrios'} con "${searchQuery}"`
+            : `No hay ${tab === 'parks' ? 'parques' : 'barrios'} disponibles con los filtros seleccionados.`
+          }
+          className="py-8"
+        />
       ) : (
         <div className="space-y-2">
           {rows.map((row) => (

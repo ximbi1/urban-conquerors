@@ -657,9 +657,9 @@ const ActivityFeed = ({ onClose, isMobileFullPage = false }: ActivityFeedProps) 
         <ContentSkeleton type="runs" count={4} />
       ) : combinedFeed.length === 0 ? (
         <EmptyState 
-          type="friends"
+          type="activity"
           title="Sin actividad reciente"
-          description="Las carreras de amigos y eventos de tu clan aparecerán aquí"
+          description="Añade amigos o corre cerca de otros usuarios para ver su actividad aquí."
         />
       ) : (
         <div className="space-y-3">
