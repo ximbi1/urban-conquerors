@@ -26,7 +26,7 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const animationDuration = Math.min(Math.max(path.length * 80, 2400), 12000);
+  const animationDuration = Math.min(Math.max(path.length * 200, 8000), 30000);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
