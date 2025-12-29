@@ -24,11 +24,11 @@ const tutorialSteps = [
     highlight: 'El polígono debe cerrarse para ser válido',
   },
   {
-    title: 'Roba territorios',
-    description: 'Si otro usuario ya conquistó una zona, puedes robarla corriendo más rápido (mejor ritmo) por el mismo perímetro. ¡La velocidad cuenta!',
+    title: 'Conquista y superpón',
+    description: 'Si corres por dentro de un territorio ajeno (sin escudo), solo te quedas con la porción que recorriste, el resto sigue siendo suyo. Pero si rodeas completamente un territorio más pequeño con uno más grande, ¡te lo quedas entero!',
     icon: Zap,
     image: '🔥',
-    highlight: 'Ritmo más rápido = territorio robado',
+    highlight: 'Superponer > robar parcial. Ritmo rápido = bonificación',
   },
   {
     title: 'Gana puntos y sube de nivel',
