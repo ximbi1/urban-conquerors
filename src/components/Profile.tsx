@@ -1,4 +1,4 @@
-import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, ShieldHalf, ShieldCheck, Loader2, Shield, Ruler } from 'lucide-react';
+import { X, Trophy, MapPin, Route, Trash2, Edit2, Upload, User, Award, LogOut, TrendingUp, Info, FileUp, ShieldHalf, ShieldCheck, Loader2, Shield, Ruler, HelpCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAchievements } from '@/hooks/useAchievements';
 import Achievements from './Achievements';
+import Tutorial from './Tutorial';
 import { calculateLevel, getLevelTitle, getLevelColor } from '@/utils/levelSystem';
 import { TerritoryInfoTooltip } from './TerritoryInfoTooltip';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -84,6 +85,7 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick }: ProfilePr
   const [uploading, setUploading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showAchievements, setShowAchievements] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [defenseLoading, setDefenseLoading] = useState(false);
   const [defenseTerritories, setDefenseTerritories] = useState<DefenseTerritory[]>([]);
   const [userShields, setUserShields] = useState<{ consumable: number; challenge: number }>({ consumable: 0, challenge: 0 });
@@ -806,6 +808,13 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick }: ProfilePr
                 Importar
               </Button>
             )}
+            <Button
+              variant="outline"
+              onClick={() => setShowTutorial(true)}
+            >
+              <HelpCircle className="w-4 h-4 mr-2" />
+              Tutorial
+            </Button>
           </div>
         </div>
 
@@ -1027,6 +1036,10 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick }: ProfilePr
         {showAchievements && (
           <Achievements onClose={() => setShowAchievements(false)} />
         )}
+
+        {showTutorial && (
+          <Tutorial onClose={() => setShowTutorial(false)} />
+        )}
         </div>
       </div>
     );
@@ -1134,6 +1147,10 @@ const Profile = ({ onClose, isMobileFullPage = false, onImportClick }: ProfilePr
 
         {showAchievements && (
           <Achievements onClose={() => setShowAchievements(false)} />
+        )}
+
+        {showTutorial && (
+          <Tutorial onClose={() => setShowTutorial(false)} />
         )}
       </Card>
     </div>
