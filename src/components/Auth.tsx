@@ -80,18 +80,18 @@ const Auth = () => {
           />
         </div>
 
-        {/* Floating icons */}
-        <div className="absolute top-1/4 left-1/4 animate-[float_6s_ease-in-out_infinite]">
+        {/* Floating icons - hidden on mobile to avoid overlap with logo */}
+        <div className="hidden md:block absolute top-1/4 left-1/4 animate-[float_6s_ease-in-out_infinite]">
           <div className="p-4 rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/20">
             <MapPin className="w-8 h-8 text-primary" />
           </div>
         </div>
-        <div className="absolute top-1/3 right-1/4 animate-[float_8s_ease-in-out_infinite_1s]">
+        <div className="hidden md:block absolute top-1/3 right-1/4 animate-[float_8s_ease-in-out_infinite_1s]">
           <div className="p-4 rounded-2xl bg-secondary/10 backdrop-blur-sm border border-secondary/20">
             <Trophy className="w-8 h-8 text-secondary" />
           </div>
         </div>
-        <div className="absolute bottom-1/3 left-1/3 animate-[float_7s_ease-in-out_infinite_0.5s]">
+        <div className="hidden md:block absolute bottom-1/3 left-1/3 animate-[float_7s_ease-in-out_infinite_0.5s]">
           <div className="p-4 rounded-2xl bg-accent/10 backdrop-blur-sm border border-accent/20">
             <Users className="w-8 h-8 text-accent" />
           </div>
