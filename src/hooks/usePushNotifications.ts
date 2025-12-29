@@ -5,7 +5,24 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
+let cachedVapidKey: string | null = null;
+
+const getVapidPublicKey = async (): Promise<string | null> => {
+  if (cachedVapidKey) return cachedVapidKey;
+  
+  try {
+    const { data, error } = await supabase.functions.invoke('get-vapid-key');
+    if (error || !data?.vapidPublicKey) {
+      console.warn('Could not fetch VAPID key:', error);
+      return null;
+    }
+    cachedVapidKey = data.vapidPublicKey;
+    return cachedVapidKey;
+  } catch (err) {
+    console.error('Error fetching VAPID key:', err);
+    return null;
+  }
+};
 
 export const usePushNotifications = () => {
   const { user } = useAuth();
@@ -96,10 +113,13 @@ const registerNativePush = async (userId: string) => {
 
 const registerWebPush = async (userId: string) => {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.info('Web Push not supported in this browser');
     return;
   }
-  if (!VAPID_PUBLIC_KEY) {
-    console.warn('Missing VITE_VAPID_PUBLIC_KEY for push notifications');
+
+  const vapidKey = await getVapidPublicKey();
+  if (!vapidKey) {
+    console.warn('VAPID key not available, Web Push disabled');
     return;
   }
 
@@ -116,7 +136,7 @@ const registerWebPush = async (userId: string) => {
     const existingSubscription = await registration.pushManager.getSubscription();
     const subscription = existingSubscription || (await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
     }));
 
     const subscriptionJson = subscription.toJSON();
@@ -129,7 +149,7 @@ const registerWebPush = async (userId: string) => {
     });
     toast.success('Notificaciones activadas');
   } catch (error) {
-    console.error('Error registering push notifications', error);
+    console.error('Error registering web push notifications', error);
     toast.error('No se pudieron activar las notificaciones push');
   }
 };
