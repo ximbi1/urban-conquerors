@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { MapPin, Trophy, Users, Loader2 } from 'lucide-react';
@@ -13,11 +15,18 @@ const Auth = () => {
   const [username, setUsername] = useState('');
   const [gender, setGender] = useState('');
   const [height, setHeight] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signIn, signUp } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!isLogin && !acceptedTerms) {
+      toast.error('Debes aceptar los términos y condiciones para registrarte');
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -207,11 +216,35 @@ const Auth = () => {
               />
             </div>
 
+            {/* Terms checkbox (only for signup) */}
+            <div className={`overflow-hidden transition-all duration-300 ${
+              !isLogin ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'
+            }`}>
+              <div className="flex items-start space-x-3">
+                <Checkbox
+                  id="terms"
+                  checked={acceptedTerms}
+                  onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                  className="mt-0.5"
+                />
+                <label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed">
+                  He leído y acepto los{' '}
+                  <Link to="/terms" className="text-primary hover:underline" target="_blank">
+                    Términos y Condiciones
+                  </Link>{' '}
+                  y la{' '}
+                  <Link to="/privacy" className="text-primary hover:underline" target="_blank">
+                    Política de Privacidad
+                  </Link>
+                </label>
+              </div>
+            </div>
+
             {/* Submit button */}
             <Button
               type="submit"
               className="w-full h-12 text-base font-semibold bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity shadow-lg shadow-primary/25"
-              disabled={loading}
+              disabled={loading || (!isLogin && !acceptedTerms)}
             >
               {loading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
