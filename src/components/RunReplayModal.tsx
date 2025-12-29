@@ -17,6 +17,7 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const runnerMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const runnerElementRef = useRef<HTMLDivElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const pausedProgressRef = useRef(0);
@@ -26,8 +27,9 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
-  const animationDuration = Math.min(Math.max(path.length * 200, 8000), 30000);
+  const animationDuration = Math.min(Math.max(path.length * 130, 5000), 20000);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const emojiFrameRef = useRef(0);
 
   useEffect(() => {
     const fetchToken = async () => {
@@ -153,7 +155,14 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
         .setPopup(new mapboxgl.Popup().setHTML('<strong>Inicio</strong>'))
         .addTo(mapRef.current);
 
-      runnerMarkerRef.current = new mapboxgl.Marker({ color: '#f97316' })
+      // Create custom runner element with animated emoji
+      const runnerEl = document.createElement('div');
+      runnerEl.className = 'runner-emoji';
+      runnerEl.style.cssText = 'font-size: 28px; text-shadow: 0 2px 8px rgba(0,0,0,0.5); transition: transform 0.15s ease;';
+      runnerEl.textContent = '🏃';
+      runnerElementRef.current = runnerEl;
+
+      runnerMarkerRef.current = new mapboxgl.Marker({ element: runnerEl, anchor: 'center' })
         .setLngLat(coordsRef.current[0])
         .addTo(mapRef.current);
 
@@ -192,6 +201,18 @@ export const RunReplayModal = ({ path, onClose, title }: RunReplayModalProps) =>
     const targetIndex = Math.floor(t * (coordsRef.current.length - 1));
     updatePathSlice(targetIndex);
     runnerMarkerRef.current?.setLngLat(coordsRef.current[targetIndex]);
+
+    // Animate emoji between running poses every ~150ms
+    const frameInterval = 150;
+    const currentFrame = Math.floor(elapsed / frameInterval) % 4;
+    if (currentFrame !== emojiFrameRef.current && runnerElementRef.current) {
+      emojiFrameRef.current = currentFrame;
+      // Alternate between running emojis for animation effect
+      const emojis = ['🏃', '🏃‍♂️', '🏃', '🏃‍♀️'];
+      runnerElementRef.current.textContent = emojis[currentFrame];
+      // Add slight bounce effect
+      runnerElementRef.current.style.transform = currentFrame % 2 === 0 ? 'translateY(-2px)' : 'translateY(0)';
+    }
 
     if (mapRef.current && coordsRef.current[targetIndex]) {
       const nextIdx = Math.min(targetIndex + 1, coordsRef.current.length - 1);
