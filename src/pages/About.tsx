@@ -19,7 +19,7 @@ const About = () => {
     },
     {
       question: "¿Cómo funciona la conquista de territorios?",
-      answer: "Para conquistar un territorio debes correr formando un polígono cerrado. El área mínima es de 10.000 m² y el sistema registra tu ritmo promedio. Si otro corredor quiere robar tu territorio, debe superar tu ritmo en esa misma zona. Tras conquistar, tu territorio tiene 24 horas de protección."
+      answer: "Para conquistar un territorio debes correr formando un polígono cerrado. Si pasas por dentro de un territorio ajeno (sin escudo), solo te quedas con la porción que recorriste, el resto sigue siendo suyo. Pero si tu nuevo territorio rodea completamente uno más pequeño, te lo quedas entero. Tras conquistar, tu territorio tiene 24 horas de protección automática."
     },
     {
       question: "¿Qué son los escudos y cómo los consigo?",
@@ -68,8 +68,8 @@ const About = () => {
     },
     {
       icon: Swords,
-      title: "Robos y defensas",
-      description: "Supera el ritmo del dueño para robar su territorio. Los escudos y cooldowns equilibran la competición."
+      title: "Superposición de territorios",
+      description: "Corre por dentro de zonas ajenas para quedarte con esa porción. Si rodeas un territorio más pequeño con uno mayor, te lo comes entero."
     },
     {
       icon: Crown,
