@@ -25,6 +25,9 @@ export interface Territory {
   tags?: Array<{ type: string; name: string }>;
   poiSummary?: string | null;
   shieldExpires?: string | null;
+  isSocial?: boolean;
+  socialParticipants?: string[];
+  socialParticipantNames?: string[];
 }
 
 export interface Run {

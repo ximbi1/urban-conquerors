@@ -1107,6 +1107,7 @@ export type Database = {
           coordinates: Json
           created_at: string
           id: string
+          is_social: boolean | null
           last_attack_at: string | null
           last_attacker_id: string | null
           last_defender_id: string | null
@@ -1116,6 +1117,7 @@ export type Database = {
           points: number
           protected_until: string | null
           required_pace: number | null
+          social_participants: string[] | null
           status: Database["public"]["Enums"]["territory_status"]
           tags: Json | null
           updated_at: string
@@ -1130,6 +1132,7 @@ export type Database = {
           coordinates: Json
           created_at?: string
           id?: string
+          is_social?: boolean | null
           last_attack_at?: string | null
           last_attacker_id?: string | null
           last_defender_id?: string | null
@@ -1139,6 +1142,7 @@ export type Database = {
           points: number
           protected_until?: string | null
           required_pace?: number | null
+          social_participants?: string[] | null
           status?: Database["public"]["Enums"]["territory_status"]
           tags?: Json | null
           updated_at?: string
@@ -1153,6 +1157,7 @@ export type Database = {
           coordinates?: Json
           created_at?: string
           id?: string
+          is_social?: boolean | null
           last_attack_at?: string | null
           last_attacker_id?: string | null
           last_defender_id?: string | null
@@ -1162,6 +1167,7 @@ export type Database = {
           points?: number
           protected_until?: string | null
           required_pace?: number | null
+          social_participants?: string[] | null
           status?: Database["public"]["Enums"]["territory_status"]
           tags?: Json | null
           updated_at?: string
