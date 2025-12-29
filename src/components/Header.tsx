@@ -85,14 +85,16 @@ const Header = ({ onShowNotifications }: HeaderProps) => {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-sm">
-      <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+      <div className="container mx-auto px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
-            <img 
-              src={logoUrbanz} 
-              alt="URBANZ" 
-              className="h-[72px] w-auto object-contain -my-2"
-            />
+            <div className="h-[60px] w-[60px] rounded-xl overflow-hidden bg-gradient-to-br from-primary to-accent border-glow">
+              <img 
+                src={logoUrbanz} 
+                alt="Logo URBANZ" 
+                className="h-full w-full object-cover scale-[1.15]"
+              />
+            </div>
             <h1 className="text-2xl font-display font-bold glow-primary">
               URBANZ
             </h1>
