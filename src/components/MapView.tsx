@@ -185,6 +185,8 @@ const MapView = ({
           hasShield: Boolean(shieldRemaining),
           shieldLabel,
           poiTags: territory.tags || [],
+          isSocial: territory.isSocial || false,
+          socialParticipants: territory.socialParticipantNames?.join(', ') || '',
         },
         geometry: {
           type: 'Polygon' as const,
@@ -446,6 +448,9 @@ const MapView = ({
     }
   }, [user]);
 
+  // Color unificado para territorios de Liga Social
+  const SOCIAL_LEAGUE_COLOR = '#22c55e'; // Verde para colaborativo
+  
   const loadTerritories = useCallback(async () => {
     if (!playerSettings || playerSettings.explorerMode) {
       setTerritories([]);
@@ -469,16 +474,52 @@ const MapView = ({
     }
 
     if (data) {
+      // Para territorios sociales, obtener nombres de participantes
+      const socialTerritoryIds = data.filter((t: any) => t.is_social && t.social_participants?.length).map((t: any) => t.id);
+      let participantNames: Map<string, string[]> = new Map();
+      
+      if (socialTerritoryIds.length > 0) {
+        // Obtener todos los IDs únicos de participantes
+        const allParticipantIds = new Set<string>();
+        data.forEach((t: any) => {
+          if (t.is_social && t.social_participants) {
+            t.social_participants.forEach((id: string) => allParticipantIds.add(id));
+          }
+        });
+        
+        if (allParticipantIds.size > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, username')
+            .in('id', Array.from(allParticipantIds));
+          
+          if (profiles) {
+            const idToName = new Map(profiles.map((p: any) => [p.id, p.username]));
+            data.forEach((t: any) => {
+              if (t.is_social && t.social_participants) {
+                const names = t.social_participants
+                  .map((id: string) => idToName.get(id) || 'Usuario')
+                  .filter(Boolean);
+                participantNames.set(t.id, names);
+              }
+            });
+          }
+        }
+      }
+      
       const formattedTerritories: Territory[] = data.map((t: any) => ({
         id: t.id,
-        owner: t.profiles?.username || 'Usuario',
+        owner: t.is_social 
+          ? `Colaborativo (${participantNames.get(t.id)?.length || 1} participantes)` 
+          : (t.profiles?.username || 'Usuario'),
         userId: t.user_id,
         coordinates: t.coordinates as Coordinate[],
         area: t.area,
         perimeter: t.perimeter,
         avgPace: t.avg_pace,
         points: t.points,
-        color: t.profiles?.color || '#8b5cf6',
+        // Usar color unificado verde para territorios sociales
+        color: t.is_social ? SOCIAL_LEAGUE_COLOR : (t.profiles?.color || '#8b5cf6'),
         timestamp: new Date(t.created_at).getTime(),
         conquered: t.conquered,
         protectedUntil: t.protected_until,
@@ -491,6 +532,9 @@ const MapView = ({
         tags: t.tags || [],
         poiSummary: t.poi_summary || null,
         shieldExpires: t.shields?.length ? t.shields[0].expires_at : null,
+        isSocial: Boolean(t.is_social),
+        socialParticipants: t.social_participants || [],
+        socialParticipantNames: participantNames.get(t.id) || [],
       }));
       setTerritories(formattedTerritories);
     }

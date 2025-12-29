@@ -724,7 +724,7 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('id, username, total_points, total_territories, total_distance, season_points, historical_points, league_shard')
+      .select('id, username, total_points, total_territories, total_distance, season_points, historical_points, league_shard, explorer_mode, social_league')
       .eq('id', user.id)
       .single()
 
@@ -737,6 +737,48 @@ Deno.serve(async (req) => {
     const attackerName = profile.username || 'Un corredor'
     const profileState: any = { ...profile }
     const maxArea = getMaxAreaForLevel(userLevel)
+    const isExplorerMode = Boolean(profile.explorer_mode)
+    const isSocialLeague = Boolean(profile.social_league)
+
+    // MODO EXPLORADOR: Solo guardar la ruta sin afectar territorios
+    if (isExplorerMode) {
+      logger.info('Explorer mode run, saving without territories', { userId: user.id })
+      
+      // Guardar en explorer_territories en lugar de territories
+      await supabaseAdmin
+        .from('explorer_territories')
+        .insert({
+          user_id: user.id,
+          path: payload.path,
+          distance,
+          duration: payload.duration,
+          metadata: { avg_pace: avgPace, area, perimeter }
+        })
+      
+      // Actualizar distancia total del perfil
+      await supabaseAdmin
+        .from('profiles')
+        .update({
+          total_distance: (profile.total_distance || 0) + distance
+        })
+        .eq('id', user.id)
+      
+      return new Response(
+        JSON.stringify({
+          success: true,
+          explorerMode: true,
+          data: {
+            action: 'explorer_run',
+            distance,
+            duration: payload.duration,
+            avgPace,
+            area,
+            message: 'Ruta guardada en modo explorador'
+          }
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
     if (area > maxArea) {
       logger.warn('Area exceeds max limit', { area, maxArea, userLevel })
@@ -767,7 +809,9 @@ Deno.serve(async (req) => {
         required_pace,
         status,
         points,
-        owner:profiles!territories_user_id_fkey(id, username, total_points)
+        is_social,
+        social_participants,
+        owner:profiles!territories_user_id_fkey(id, username, total_points, social_league)
       `)
 
     if (territoriesError) {
@@ -869,7 +913,173 @@ Deno.serve(async (req) => {
     const rewardPoints = calculateRewardPoints(distance, area, Boolean(isStealAttempt || isPartialStealAttempt || isInnerConquest))
     pointsGained = rewardPoints
 
-    if ((isStealAttempt || isPartialStealAttempt) && targetTerritory && targetTerritoryPolygon && targetOverlapGeom) {
+    // LIGA SOCIAL: Verificar si el atacante está en liga social (no puede robar)
+    // o si el defensor está en liga social (su territorio no puede ser robado)
+    const defenderInSocialLeague = targetTerritory?.owner?.social_league || targetTerritory?.is_social
+    
+    // Si el atacante está en Liga Social, NO puede robar - buscar territorios sociales para fusionar
+    if (isSocialLeague) {
+      logger.info('Social league mode - checking for existing social territories', { userId: user.id })
+      
+      // Buscar territorios sociales existentes que se solapen con el nuevo
+      const socialOverlaps = overlappingTerritories.filter(ot => ot.territory.is_social)
+      
+      if (socialOverlaps.length > 0) {
+        // Fusionar con territorio social existente
+        const primarySocial = socialOverlaps[0].territory
+        const existingParticipants: string[] = (primarySocial.social_participants as string[]) || []
+        
+        // Añadir usuario a participantes si no está ya
+        const newParticipants = existingParticipants.includes(user.id) 
+          ? existingParticipants 
+          : [...existingParticipants, user.id]
+        
+        // Fusionar polígonos
+        try {
+          const existingCoords = (primarySocial.coordinates as any[]).map((c: any) => [c.lng, c.lat])
+          if (existingCoords[0][0] !== existingCoords[existingCoords.length - 1][0] ||
+              existingCoords[0][1] !== existingCoords[existingCoords.length - 1][1]) {
+            existingCoords.push([...existingCoords[0]])
+          }
+          const existingPoly = polygon([existingCoords])
+          
+          // Usar union para fusionar polígonos (importar de turf)
+          const { union } = await import('https://esm.sh/@turf/turf@6.5.0')
+          const merged = union(existingPoly, runPolygon)
+          
+          if (merged && merged.geometry.type === 'Polygon') {
+            const mergedCoords = merged.geometry.coordinates[0].map((c: number[]) => ({ lng: c[0], lat: c[1] }))
+            const mergedArea = turfArea(merged)
+            const mergedPerimeter = calculatePerimeter(mergedCoords)
+            
+            await supabaseAdmin
+              .from('territories')
+              .update({
+                coordinates: mergedCoords,
+                area: mergedArea,
+                perimeter: mergedPerimeter,
+                social_participants: newParticipants,
+                points: (primarySocial.points || 0) + rewardPoints,
+                conquest_points: (primarySocial.conquest_points || 0) + rewardPoints,
+              })
+              .eq('id', primarySocial.id)
+            
+            territoryId = primarySocial.id
+          }
+        } catch (e) {
+          logger.warn('Error merging social territories, creating adjacent', { error: String(e) })
+          // Si falla la fusión, crear territorio adyacente
+        }
+        
+        if (territoryId) {
+          action = 'conquered'
+          territoriesConquered = 1
+          
+          profileState.total_points = (profileState.total_points || 0) + rewardPoints
+          profileState.season_points = (profileState.season_points || 0) + rewardPoints
+          profileState.historical_points = (profileState.historical_points || 0) + rewardPoints
+          profileState.total_distance = (profileState.total_distance || 0) + distance
+          
+          await supabaseAdmin
+            .from('profiles')
+            .update({
+              total_points: profileState.total_points,
+              season_points: profileState.season_points,
+              historical_points: profileState.historical_points,
+              total_distance: profileState.total_distance,
+            })
+            .eq('id', user.id)
+          
+          // Saltar al final del procesamiento de territorio
+          // (el run se guarda más abajo)
+        }
+      }
+      
+      // Si no hay territorios sociales para fusionar, crear uno nuevo (se maneja en CASO 4)
+      // Pero asegurarnos de que no se intente robar
+    }
+    
+    // Si el defensor está en Liga Social, bloquear el robo y convertir en nuevo territorio
+    if ((isStealAttempt || isPartialStealAttempt || isInnerConquest) && defenderInSocialLeague) {
+      logger.info('Defender in social league - steal blocked', { 
+        defenderId: targetTerritory?.user_id,
+        attackerId: user.id 
+      })
+      
+      // Convertir intento de robo en territorio nuevo sin afectar al defensor
+      // Calcular la diferencia para que no se solapen
+      const otherPolygons = [targetTerritoryPolygon].filter(Boolean)
+      if (containingTerritory) {
+        otherPolygons.push(containingTerritory.polygon)
+      }
+      
+      try {
+        const adjustedPolygon = calculatePolygonDifference(runPolygon, otherPolygons)
+        if (adjustedPolygon && adjustedPolygon.geometry && adjustedPolygon.geometry.type === 'Polygon') {
+          const adjustedArea = turfArea(adjustedPolygon)
+          if (adjustedArea >= MINIMUM_AREA_M2) {
+            const adjustedPath = adjustedPolygon.geometry.coordinates[0].map((c: number[]) => ({ lng: c[0], lat: c[1] }))
+            const adjustedPerimeter = calculatePerimeter(adjustedPath)
+            const adjustedReward = calculateRewardPoints(distance, adjustedArea, false)
+            const requiredPace = calculateRequiredPace(avgPace, userLevel)
+            
+            const { data: inserted, error: insertError } = await supabaseAdmin
+              .from('territories')
+              .insert({
+                user_id: user.id,
+                coordinates: adjustedPath,
+                area: adjustedArea,
+                perimeter: adjustedPerimeter,
+                avg_pace: avgPace,
+                required_pace: requiredPace,
+                protected_until: protectedUntil,
+                cooldown_until: new Date(now.getTime() + STEAL_COOLDOWN_MS).toISOString(),
+                status: 'protected',
+                conquest_points: adjustedReward,
+                points: adjustedReward,
+                league_shard: profile.league_shard || 'bronze-1',
+                is_social: isSocialLeague,
+                social_participants: isSocialLeague ? [user.id] : null,
+              })
+              .select('id')
+              .single()
+            
+            if (!insertError && inserted) {
+              territoryId = inserted.id
+              territoriesConquered = 1
+              action = 'conquered'
+              pointsGained = adjustedReward
+              
+              profileState.total_points = (profileState.total_points || 0) + adjustedReward
+              profileState.season_points = (profileState.season_points || 0) + adjustedReward
+              profileState.historical_points = (profileState.historical_points || 0) + adjustedReward
+              profileState.total_territories = (profileState.total_territories || 0) + 1
+              profileState.total_distance = (profileState.total_distance || 0) + distance
+              
+              await supabaseAdmin
+                .from('profiles')
+                .update({
+                  total_points: profileState.total_points,
+                  season_points: profileState.season_points,
+                  historical_points: profileState.historical_points,
+                  total_territories: profileState.total_territories,
+                  total_distance: profileState.total_distance,
+                })
+                .eq('id', user.id)
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn('Error creating non-overlapping territory for social league block', { error: String(e) })
+      }
+    }
+    // Si el atacante está en Liga Social, convertir intento de robo en fusión/nuevo territorio
+    else if ((isStealAttempt || isPartialStealAttempt || isInnerConquest) && isSocialLeague && !territoryId) {
+      logger.info('Attacker in social league - converting steal to new territory', { userId: user.id })
+      // Se manejará como nuevo territorio más abajo
+    }
+    // CASO NORMAL: Robo cuando ninguno está en Liga Social
+    else if ((isStealAttempt || isPartialStealAttempt) && targetTerritory && targetTerritoryPolygon && targetOverlapGeom && !territoryId) {
       const ownerLevel = calculateLevel(targetTerritory.owner?.total_points || 0)
       const requiredPace = calculateRequiredPace(targetTerritory.avg_pace, ownerLevel)
       const overlapArea = turfArea(targetOverlapGeom)
@@ -1207,7 +1417,7 @@ Deno.serve(async (req) => {
         .eq('id', user.id)
     }
     // CASO 4: Nuevo territorio (con posible solapamiento parcial)
-    else if (isNewTerritory) {
+    else if (isNewTerritory && !territoryId) {
       let finalPath = path
       let finalArea = area
       
@@ -1233,50 +1443,132 @@ Deno.serve(async (req) => {
         }
       }
       
-      const requiredPace = calculateRequiredPace(avgPace, userLevel)
-      const { data: inserted, error: insertError } = await supabaseAdmin
-        .from('territories')
-        .insert({
-          user_id: user.id,
-          coordinates: finalPath,
-          area: finalArea,
-          perimeter: calculatePerimeter(finalPath),
-          avg_pace: avgPace,
-          required_pace: requiredPace,
-          protected_until: protectedUntil,
-          cooldown_until: new Date(now.getTime() + STEAL_COOLDOWN_MS).toISOString(),
-          status: 'protected',
-          conquest_points: rewardPoints,
-          points: rewardPoints,
-          league_shard: profile.league_shard || 'bronze-1',
-        })
-        .select('id')
-        .single()
-
-      if (insertError || !inserted) {
-        console.error('Error insertando territorio:', insertError)
-        throw new Error('No se pudo crear el territorio')
+      // Para Liga Social, intentar fusionar con territorios sociales existentes primero
+      if (isSocialLeague && !territoryId) {
+        const socialTerritories = territories?.filter(t => t.is_social) || []
+        
+        for (const socialTerr of socialTerritories) {
+          const socialCoords = (socialTerr.coordinates as any[]).map((c: any) => [c.lng, c.lat])
+          if (socialCoords.length < 3) continue
+          
+          // Cerrar polígono si no está cerrado
+          if (socialCoords[0][0] !== socialCoords[socialCoords.length - 1][0] ||
+              socialCoords[0][1] !== socialCoords[socialCoords.length - 1][1]) {
+            socialCoords.push([...socialCoords[0]])
+          }
+          
+          try {
+            const socialPoly = polygon([socialCoords])
+            const overlap = intersect(runPolygon, socialPoly)
+            
+            if (overlap) {
+              // Fusionar territorios
+              const { union } = await import('https://esm.sh/@turf/turf@6.5.0')
+              const merged = union(socialPoly, runPolygon)
+              
+              if (merged && merged.geometry.type === 'Polygon') {
+                const mergedCoords = merged.geometry.coordinates[0].map((c: number[]) => ({ lng: c[0], lat: c[1] }))
+                const mergedArea = turfArea(merged)
+                const mergedPerimeter = calculatePerimeter(mergedCoords)
+                
+                const existingParticipants: string[] = (socialTerr.social_participants as string[]) || []
+                const newParticipants = existingParticipants.includes(user.id)
+                  ? existingParticipants
+                  : [...existingParticipants, user.id]
+                
+                await supabaseAdmin
+                  .from('territories')
+                  .update({
+                    coordinates: mergedCoords,
+                    area: mergedArea,
+                    perimeter: mergedPerimeter,
+                    social_participants: newParticipants,
+                    points: (socialTerr.points || 0) + rewardPoints,
+                    conquest_points: (socialTerr.conquest_points || 0) + rewardPoints,
+                  })
+                  .eq('id', socialTerr.id)
+                
+                territoryId = socialTerr.id
+                territoriesConquered = 1
+                action = 'conquered'
+                
+                profileState.total_points = (profileState.total_points || 0) + rewardPoints
+                profileState.season_points = (profileState.season_points || 0) + rewardPoints
+                profileState.historical_points = (profileState.historical_points || 0) + rewardPoints
+                profileState.total_distance = (profileState.total_distance || 0) + distance
+                
+                await supabaseAdmin
+                  .from('profiles')
+                  .update({
+                    total_points: profileState.total_points,
+                    season_points: profileState.season_points,
+                    historical_points: profileState.historical_points,
+                    total_distance: profileState.total_distance,
+                  })
+                  .eq('id', user.id)
+                
+                logger.info('Merged with existing social territory', { 
+                  territoryId: socialTerr.id,
+                  participants: newParticipants.length 
+                })
+                break
+              }
+            }
+          } catch (e) {
+            logger.warn('Error checking/merging social territory', { error: String(e) })
+          }
+        }
       }
-      territoryId = inserted.id
-      territoriesConquered = 1
-      action = 'conquered'
+      
+      // Si no se fusionó, crear nuevo territorio
+      if (!territoryId) {
+        const requiredPace = calculateRequiredPace(avgPace, userLevel)
+        const { data: inserted, error: insertError } = await supabaseAdmin
+          .from('territories')
+          .insert({
+            user_id: user.id,
+            coordinates: finalPath,
+            area: finalArea,
+            perimeter: calculatePerimeter(finalPath),
+            avg_pace: avgPace,
+            required_pace: requiredPace,
+            protected_until: protectedUntil,
+            cooldown_until: new Date(now.getTime() + STEAL_COOLDOWN_MS).toISOString(),
+            status: 'protected',
+            conquest_points: rewardPoints,
+            points: rewardPoints,
+            league_shard: profile.league_shard || 'bronze-1',
+            is_social: isSocialLeague,
+            social_participants: isSocialLeague ? [user.id] : null,
+          })
+          .select('id')
+          .single()
 
-      profileState.total_points = (profileState.total_points || 0) + rewardPoints
-      profileState.season_points = (profileState.season_points || 0) + rewardPoints
-      profileState.historical_points = (profileState.historical_points || 0) + rewardPoints
-      profileState.total_territories = (profileState.total_territories || 0) + 1
-      profileState.total_distance = (profileState.total_distance || 0) + distance
+        if (insertError || !inserted) {
+          console.error('Error insertando territorio:', insertError)
+          throw new Error('No se pudo crear el territorio')
+        }
+        territoryId = inserted.id
+        territoriesConquered = 1
+        action = 'conquered'
 
-      await supabaseAdmin
-        .from('profiles')
-        .update({
-          total_points: profileState.total_points,
-          season_points: profileState.season_points,
-          historical_points: profileState.historical_points,
-          total_territories: profileState.total_territories,
-          total_distance: profileState.total_distance,
-        })
-        .eq('id', user.id)
+        profileState.total_points = (profileState.total_points || 0) + rewardPoints
+        profileState.season_points = (profileState.season_points || 0) + rewardPoints
+        profileState.historical_points = (profileState.historical_points || 0) + rewardPoints
+        profileState.total_territories = (profileState.total_territories || 0) + 1
+        profileState.total_distance = (profileState.total_distance || 0) + distance
+
+        await supabaseAdmin
+          .from('profiles')
+          .update({
+            total_points: profileState.total_points,
+            season_points: profileState.season_points,
+            historical_points: profileState.historical_points,
+            total_territories: profileState.total_territories,
+            total_distance: profileState.total_distance,
+          })
+          .eq('id', user.id)
+      }
     }
 
     if (territoryId) {
@@ -1399,6 +1691,8 @@ Deno.serve(async (req) => {
           clanMissionsCompleted,
           parksConquered,
           parksStolen,
+          socialLeague: isSocialLeague,
+          explorerMode: false,
         },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
