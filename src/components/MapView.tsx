@@ -211,7 +211,7 @@ const MapView = ({
   const { settings: playerSettings, loading: settingsLoading } = usePlayerSettings();
   const [explorerRoutes, setExplorerRoutes] = useState<{ id: string; path: Coordinate[]; created_at?: string | null }[]>([]);
 
-  const isPointInPolygon = (point: Coordinate, polygon: Coordinate[]) => {
+  function isPointInPolygon(point: Coordinate, polygon: Coordinate[]) {
     let inside = false;
     for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
       const xi = polygon[i].lng;
@@ -219,17 +219,19 @@ const MapView = ({
       const xj = polygon[j].lng;
       const yj = polygon[j].lat;
 
-      const intersect = ((yi > point.lat) !== (yj > point.lat)) &&
-        (point.lng < ((xj - xi) * (point.lat - yi)) / Math.max(yj - yi, 1e-9) + xi);
+      const intersect =
+        (yi > point.lat) !== (yj > point.lat) &&
+        point.lng < ((xj - xi) * (point.lat - yi)) / Math.max(yj - yi, 1e-9) + xi;
       if (intersect) inside = !inside;
     }
     return inside;
-  };
+  }
 
-  const isPolygonContained = (inner: Coordinate[], outer: Coordinate[]) => {
+  function isPolygonContained(inner: Coordinate[], outer: Coordinate[]) {
     if (inner.length < 3 || outer.length < 3) return false;
     return inner.every((point) => isPointInPolygon(point, outer));
-  };
+  }
+
 
   const calculateCentroid = useCallback((polygon: Coordinate[]) => {
     if (!polygon.length) {
