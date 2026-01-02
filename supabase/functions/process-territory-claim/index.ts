@@ -100,7 +100,9 @@ const derivePoiTags = (runPolygon: any, pois: any[]) => {
   return Array.from(uniq.values())
 }
 
-// Verificar si el usuario ha conquistado algún parque rodeándolo completamente
+// Verificar si el usuario ha conquistado algún parque (>60% del parque dentro del territorio)
+const PARK_OVERLAP_THRESHOLD = 0.6 // 60% del parque debe estar dentro del territorio
+
 const checkParkConquests = async (
   userId: string,
   runPolygon: any,
@@ -125,9 +127,18 @@ const checkParkConquests = async (
       }
       
       const parkPolygon = polygon([closedCoords])
+      const parkArea = turfArea(parkPolygon)
       
-      // Verificar si el runPolygon CONTIENE completamente el parque
-      if (!booleanContains(runPolygon, parkPolygon)) continue
+      // Verificar si hay intersección significativa (>60% del parque dentro del territorio)
+      const intersection = intersect(runPolygon, parkPolygon)
+      if (!intersection) continue
+      
+      const intersectionArea = turfArea(intersection)
+      const overlapRatio = intersectionArea / parkArea
+      
+      if (overlapRatio < PARK_OVERLAP_THRESHOLD) continue
+      
+      console.log(`Park ${park.name} (${park.id}) has ${(overlapRatio * 100).toFixed(1)}% overlap with territory`)
 
       console.log(`Park ${park.name} (${park.id}) is fully contained in user's run polygon`)
 
